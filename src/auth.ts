@@ -20,6 +20,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   }),
   session: { strategy: "jwt" },
   secret: process.env.AUTH_SECRET,
+  // 反向代理后必须信任 x-forwarded-* 头，否则回调 URL 和 CSRF 会校验失败
+  trustHost: true,
   pages: {
     signIn: "/login",
     error: "/login",
