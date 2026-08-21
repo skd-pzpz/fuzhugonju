@@ -8,6 +8,8 @@ import { Card } from "@/components/ui/card";
 import { chapters, characters, events, novels } from "@/db/schema";
 import { db } from "@/db";
 
+export const dynamic = "force-dynamic";
+
 type EventData = {
   x?: number;
   y?: number;

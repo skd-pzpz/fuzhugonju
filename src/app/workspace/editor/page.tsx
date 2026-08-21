@@ -5,6 +5,8 @@ import { novels } from "@/db/schema";
 import { db } from "@/db";
 import { asc } from "drizzle-orm";
 
+export const dynamic = "force-dynamic";
+
 export default async function EditorPage() {
   let firstNovel: { id: string } | undefined;
   try {

@@ -4,6 +4,8 @@ import { characters, novels } from "@/db/schema";
 import { db } from "@/db";
 import { CharactersPageClient } from "./characters-page-client";
 
+export const dynamic = "force-dynamic";
+
 export type CharacterCardData = {
   id: string;
   name: string;

@@ -1,5 +1,5 @@
-# 使用 Node.js 20 官方镜像
-FROM node:20-alpine
+# 使用 Node.js 22 官方镜像（AI SDK 要求 >=22）
+FROM node:22-alpine
 
 # 设置工作目录
 WORKDIR /app
@@ -7,7 +7,7 @@ WORKDIR /app
 # 复制 package.json 和 lock 文件
 COPY package.json ./
 
-# 安装依赖（使用 npm ci 确保一致性）
+# 安装依赖
 RUN npm install
 
 # 复制所有源代码
