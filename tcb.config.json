@@ -1,0 +1,7 @@
+{
+  "envId": "your-env-id",
+  "functionRoot": "cloudfunctions",
+  "staticWebsite": {
+    "cdnDomain": true
+  }
+}

@@ -1,0 +1,15 @@
+node_modules
+.next
+.env
+.env.local
+.git
+.gitignore
+*.log
+npm-debug.log*
+.DS_Store
+vercel.json
+tcb.config.json
+cloudbaserc.json
+Dockerfile
+.dockerignore
+README.md
