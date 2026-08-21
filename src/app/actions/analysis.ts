@@ -90,12 +90,29 @@ export async function analyzeChapter(
   novelId: string,
   chapterId: string,
 ): Promise<AnalyzeChapterResult> {
-  const userId = await requireUserId();
-  await requireNovelOwnership(novelId, userId);
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "未登录" };
+  }
+  try {
+    await requireNovelOwnership(novelId, userId);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "无权限访问该小说" };
+  }
 
-  const chapter = await db.query.chapters.findFirst({
-    where: and(eq(chapters.id, chapterId), eq(chapters.novelId, novelId)),
-  });
+  let chapter;
+  try {
+    chapter = await db.query.chapters.findFirst({
+      where: and(eq(chapters.id, chapterId), eq(chapters.novelId, novelId)),
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      error: `数据库查询失败：${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
   if (!chapter) return { ok: false, error: "章节不存在" };
 
   // 提取整章全文文本

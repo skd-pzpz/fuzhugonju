@@ -330,7 +330,13 @@ export function NovelEditor({
     } catch (error) {
       clearProgressTimer();
       console.error("章节分析失败：", error);
-      useAnalysisStore.getState().failAnalysis("分析失败，请稍后重试");
+      const msg =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "分析失败，请稍后重试";
+      useAnalysisStore.getState().failAnalysis(msg);
     } finally {
       setAnalyzing(false);
       setProgressText("");
