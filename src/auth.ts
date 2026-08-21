@@ -2,13 +2,7 @@ import NextAuth from "next-auth";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import {
-  users,
-  accounts,
-  sessions,
-  verificationTokens,
-  passkeyLoginTokens,
-} from "@/db/schema";
+import { users, accounts, sessions, verificationTokens } from "@/db/schema";
 import Credentials from "next-auth/providers/credentials";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -51,38 +45,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const { verifyPassword } = await import("@/lib/password");
         const valid = await verifyPassword(password, user.passwordHash);
         if (!valid) return null;
-
-        return { id: user.id, name: user.name, username: user.username };
-      },
-    }),
-    Credentials({
-      id: "passkey",
-      name: "passkey",
-      credentials: {
-        loginToken: { label: "登录令牌", type: "text" },
-      },
-      async authorize(credentials) {
-        const loginToken = credentials?.loginToken as string;
-        if (!loginToken) return null;
-
-        const token = await db.query.passkeyLoginTokens.findFirst({
-          where: eq(passkeyLoginTokens.token, loginToken),
-        });
-
-        if (!token) return null;
-        if (token.used) return null;
-        if (token.expiresAt < new Date()) return null;
-
-        await db
-          .update(passkeyLoginTokens)
-          .set({ used: true })
-          .where(eq(passkeyLoginTokens.token, loginToken));
-
-        const user = await db.query.users.findFirst({
-          where: eq(users.id, token.userId),
-        });
-
-        if (!user) return null;
 
         return { id: user.id, name: user.name, username: user.username };
       },

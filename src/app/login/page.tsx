@@ -1,13 +1,10 @@
-﻿﻿"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Fingerprint } from "lucide-react";
 
-import PasskeyLogin from "@/components/passkey-login";
-
-type Mode = "login" | "register" | "passkey";
+type Mode = "login" | "register";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<Mode>("login");
@@ -105,12 +102,6 @@ export default function LoginPage() {
     }
   };
 
-  const switchToPasskey = () => {
-    setMode("passkey");
-    setError("");
-    setSuccessMsg("");
-  };
-
   const switchToLogin = () => {
     setMode("login");
     setError("");
@@ -134,23 +125,7 @@ export default function LoginPage() {
           <p className="mt-1 text-sm text-text-muted">AI 辅助小说创作</p>
         </div>
 
-        {mode === "passkey" ? (
-          <>
-            {/* Passkey 登录 */}
-            <PasskeyLogin />
-
-            {/* 返回密码登录 */}
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={switchToLogin}
-                className="text-xs text-text-muted hover:text-text-primary underline"
-              >
-                使用密码登录
-              </button>
-            </div>
-          </>
-        ) : mode === "register" ? (
+        {mode === "register" ? (
           <>
             {/* 注册表单 */}
             <form onSubmit={handleRegister} className="space-y-4">
@@ -199,18 +174,6 @@ export default function LoginPage() {
               {error && <p className="text-sm text-danger">{error}</p>}
 
               {successMsg && <p className="text-sm text-success">{successMsg}</p>}
-
-              {/* Passkey 小字入口 - 在按钮上方 */}
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={switchToPasskey}
-                  className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary"
-                >
-                  <Fingerprint className="size-3" />
-                  使用指纹/面容登录
-                </button>
-              </div>
 
               <button
                 type="submit"
@@ -267,18 +230,6 @@ export default function LoginPage() {
 
               {error && <p className="text-sm text-danger">{error}</p>}
               {successMsg && <p className="text-sm text-success">{successMsg}</p>}
-
-              {/* Passkey 小字入口 - 在按钮上方 */}
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={switchToPasskey}
-                  className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-text-primary"
-                >
-                  <Fingerprint className="size-3" />
-                  使用指纹/面容登录
-                </button>
-              </div>
 
               <button
                 type="submit"

@@ -2,7 +2,6 @@
 
 import {
   ChevronDown,
-  Fingerprint,
   KeyRound,
   Palette,
   RotateCcw,
@@ -57,7 +56,6 @@ import {
 import { applyCustomColorOnly, useTheme, type ThemeName } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { useToastStore } from "@/stores/toast-store";
-import PasskeyRegister from "@/components/passkey-register";
 
 /** 模块/全局默认中可选的提供商（不含自定义） */
 const MODULE_PROVIDERS = AI_PROVIDERS.filter((p) => p.id !== "custom");
@@ -661,22 +659,6 @@ export default function SettingsPage() {
               点击预设快速切换，或使用取色器自由选择颜色
             </p>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Passkey 绑定 */}
-      <Card className="rounded-2xl border-border/60 bg-card shadow-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Fingerprint className="size-4 text-primary" />
-            指纹/面容登录
-          </CardTitle>
-          <CardDescription className="text-xs">
-            绑定后下次登录可跳过验证码，使用指纹或面容识别快速登录。
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PasskeyRegister />
         </CardContent>
       </Card>
     </div>
