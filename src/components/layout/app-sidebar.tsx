@@ -682,8 +682,8 @@ export function AppSidebar() {
                             <span className="truncate">{novel.title}</span>
                           </SidebarMenuButton>
 
-                          {/* 小说操作按钮（悬浮显示） */}
-                          <div className="absolute right-1 top-1/2 z-10 hidden -translate-y-1/2 items-center gap-1 group-hover/menu-button:flex">
+                          {/* 小说操作按钮：桌面端 hover 显示，移动端常显（移动端无 hover）*/}
+                          <div className="absolute right-1 top-1/2 z-10 hidden -translate-y-1/2 items-center gap-1 max-md:flex group-hover/menu-button:flex">
                             {/* 重命名小说 */}
                             <Button
                               variant="ghost"
@@ -753,8 +753,8 @@ export function AppSidebar() {
                                       <span className="truncate">{label}</span>
                                     </SidebarMenuSubButton>
 
-                                    {/* 章节操作按钮（悬浮显示） */}
-                                    <div className="absolute right-0.5 top-1/2 z-10 hidden -translate-y-1/2 items-center gap-0.5 group-hover/menu-sub-item:flex">
+                                    {/* 章节操作按钮：桌面端 hover 显示，移动端常显 */}
+                                    <div className="absolute right-0.5 top-1/2 z-10 hidden -translate-y-1/2 items-center gap-0.5 max-md:flex group-hover/menu-sub-item:flex">
                                       {/* 重命名章节 */}
                                       <Button
                                         variant="ghost"

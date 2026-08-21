@@ -2,6 +2,7 @@
 
 import { and, asc, eq } from "drizzle-orm";
 import { generateText } from "ai";
+import { APICallError } from "@ai-sdk/provider";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -59,19 +60,6 @@ async function requireNovelOwnership(novelId: string, userId: string): Promise<v
   if (!novel) throw new Error("小说不存在或无权限");
 }
 
-/** 判断是否为 401/Auth 错误 */
-function isAuthError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const msg = error.message.toLowerCase();
-  return (
-    msg.includes("401") ||
-    msg.includes("unauthorized") ||
-    msg.includes("令牌") ||
-    msg.includes("token") ||
-    msg.includes("api key")
-  );
-}
-
 /** 置信度 -> 出场重要程度（1-5） */
 function confidenceToImportance(confidence: number): number {
   if (confidence >= 0.9) return 5;
@@ -79,6 +67,68 @@ function confidenceToImportance(confidence: number): number {
   if (confidence >= 0.7) return 3;
   if (confidence >= 0.5) return 2;
   return 1;
+}
+
+/** 将 AI SDK 错误转换为用户友好的中文提示 */
+function describeAIError(error: unknown): string {
+  if (error === "TIMEOUT") return "调用超时";
+
+  if (APICallError.isInstance(error)) {
+    const statusCode = error.statusCode;
+    const body = (error.responseBody ?? "").toString().toLowerCase();
+
+    if (statusCode === 401) {
+      return "API Key 无效或已过期，请在设置中检查配置";
+    }
+    if (statusCode === 403) {
+      return "API Key 无权限访问该模型，请检查权限或更换模型";
+    }
+    if (statusCode === 429) {
+      return "API 调用过于频繁，请稍后重试或更换模型";
+    }
+    if (statusCode === 404) {
+      return "模型不存在，请检查模型名称是否正确";
+    }
+    if (statusCode && statusCode >= 500) {
+      return `AI 服务暂时不可用（${statusCode}），请稍后重试`;
+    }
+    if (body.includes("rate limit") || body.includes("quota")) {
+      return "API 配额不足或请求过于频繁，请稍后重试";
+    }
+    if (body.includes("invalid api key") || body.includes("unauthorized")) {
+      return "API Key 无效或已过期";
+    }
+    if (error.message && error.message !== "An unexpected response was received from the server") {
+      return error.message;
+    }
+    return `AI 服务响应异常（${statusCode ?? "未知状态"}），请重试或更换模型`;
+  }
+
+  if (error instanceof Error) {
+    const msg = error.message;
+    if (msg.includes("fetch") || msg.includes("network")) {
+      return "网络连接失败，请检查网络后重试";
+    }
+    if (msg) return msg;
+  }
+  return String(error);
+}
+
+/** 健康检查：用短请求验证模型是否可用 */
+async function healthCheckModel(
+  model: ReturnType<typeof getModelInstance>,
+): Promise<void> {
+  await Promise.race([
+    generateText({
+      model,
+      prompt: "请只回复 OK",
+      temperature: 0,
+      maxOutputTokens: 4,
+    }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("TIMEOUT")), 15_000),
+    ),
+  ]);
 }
 
 /**
@@ -146,6 +196,29 @@ export async function analyzeChapter(
       console.log(
         `[AI Analysis] 尝试候选 ${i + 1}/${candidates.length}: provider=${c.provider}, model=${c.modelName}, keySource=${c.keySource}`,
       );
+
+      // 健康检查：先验证模型是否可用（5s 超时）
+      try {
+        await healthCheckModel(c.model);
+        console.log(
+          `[AI Analysis] 健康检查通过：${c.provider}/${c.modelName}`,
+        );
+      } catch (healthErr) {
+        const healthMsg = describeAIError(healthErr);
+        console.warn(
+          `[AI Analysis] 健康检查失败 (${c.provider}/${c.modelName}): ${healthMsg}`,
+        );
+        lastErrorMsg = healthMsg;
+        if (i === candidates.length - 1) {
+          return {
+            ok: false,
+            error: `所有候选模型均不可用。最后错误：${healthMsg}`,
+            provider: c.provider as string,
+          };
+        }
+        continue;
+      }
+
       const result = await apiCallWithTimeout(c.model, trimmed);
       data = result.object;
       usedProvider = c.provider;
@@ -165,22 +238,14 @@ export async function analyzeChapter(
       }
       break;
     } catch (error) {
-      const msg =
-        error instanceof Error
-          ? error.message === "TIMEOUT"
-            ? "调用超时"
-            : error.message
-          : String(error);
+      const msg = describeAIError(error);
       lastErrorMsg = msg;
       console.warn(`[AI Analysis] 候选 ${i + 1} 失败 (${c.provider}/${c.modelName}): ${msg}`);
       if (i === candidates.length - 1) {
-        if (msg === "TIMEOUT") {
+        if (error === "TIMEOUT" || (error instanceof Error && error.message === "TIMEOUT")) {
           return { ok: false, error: "分析超时，章节内容较长，请稍后重试" };
         }
-        const showMsg = msg.includes("fetch")
-          ? "网络连接失败，请检查网络后重试"
-          : `AI 分析失败：${msg}`;
-        return { ok: false, error: showMsg, provider: c.provider as string };
+        return { ok: false, error: `AI 分析失败：${msg}`, provider: c.provider as string };
       }
     }
   }
@@ -244,19 +309,28 @@ async function apiCallWithTimeout(
   model: ReturnType<typeof getModelInstance>,
   chapterText: string,
 ) {
-  const textResult = await Promise.race([
-    generateText({
-      model,
-      system: CHAPTER_ANALYSIS_SYSTEM_PROMPT,
-      prompt: buildChapterAnalysisPrompt(chapterText),
-      temperature: 0.1,
-    }),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("TIMEOUT")), 120_000),
-    ),
-  ]);
-  const data = robustJsonParse(textResult.text, chapterAnalysisSchema);
-  return { object: data, text: textResult.text };
+  try {
+    const textResult = await Promise.race([
+      generateText({
+        model,
+        system: CHAPTER_ANALYSIS_SYSTEM_PROMPT,
+        prompt: buildChapterAnalysisPrompt(chapterText),
+        temperature: 0.1,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("TIMEOUT")), 120_000),
+      ),
+    ]);
+    const data = robustJsonParse(textResult.text, chapterAnalysisSchema);
+    return { object: data, text: textResult.text };
+  } catch (error) {
+    if (APICallError.isInstance(error)) {
+      console.error(
+        `[AI Analysis] APICallError: status=${error.statusCode}, url=${error.url}, body=${(error.responseBody ?? "").slice(0, 300)}`,
+      );
+    }
+    throw error;
+  }
 }
 
 /** 合并同名角色（同章内多个称呼要归并） */
@@ -531,6 +605,21 @@ export async function checkSpelling(
       console.log(
         `[SpellCheck] 尝试候选 ${i + 1}/${candidates.length}: provider=${c.provider}, model=${c.modelName}, keySource=${c.keySource}`,
       );
+
+      // 健康检查
+      try {
+        await healthCheckModel(c.model);
+      } catch (healthErr) {
+        const healthMsg = describeAIError(healthErr);
+        console.warn(
+          `[SpellCheck] 健康检查失败 (${c.provider}/${c.modelName}): ${healthMsg}`,
+        );
+        if (i === candidates.length - 1) {
+          return { ok: false, error: `所有候选模型均不可用。最后错误：${healthMsg}` };
+        }
+        continue;
+      }
+
       const textResult = await Promise.race([
         generateText({
           model: c.model,
@@ -545,15 +634,10 @@ export async function checkSpelling(
       const parsed = robustJsonParse(textResult.text, spellCheckResponseSchema);
       return { ok: true, issues: parsed.issues };
     } catch (error) {
-      const msg =
-        error instanceof Error
-          ? error.message === "TIMEOUT"
-            ? "检测超时"
-            : error.message
-          : String(error);
+      const msg = describeAIError(error);
       console.warn(`[SpellCheck] 候选 ${i + 1} 失败 (${c.provider}/${c.modelName}): ${msg}`);
       if (i === candidates.length - 1) {
-        if (msg === "TIMEOUT") {
+        if (error === "TIMEOUT" || (error instanceof Error && error.message === "TIMEOUT")) {
           return { ok: false, error: "检测超时，内容较长，请稍后重试" };
         }
         return { ok: false, error: `错字检测失败：${msg}` };

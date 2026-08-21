@@ -60,9 +60,16 @@ export default function PasskeyRegister() {
     } catch (err: any) {
       if (err?.name === "SecurityError" || err?.name === "NotAllowedError") {
         addToast("操作已取消", "error");
+      } else if (err?.name === "AbortError") {
+        addToast("操作超时，请重试", "error");
       } else {
+        const detail = err?.message || String(err);
         console.error("Passkey 绑定失败:", err);
-        addToast("绑定失败，请重试", "error");
+        if (detail.includes("User ID") || detail.includes("User handle")) {
+          addToast("用户标识长度异常，请联系开发者", "error");
+        } else {
+          addToast(`绑定失败：${detail}`, "error");
+        }
       }
     } finally {
       setRegistering(false);

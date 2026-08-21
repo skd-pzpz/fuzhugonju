@@ -7,6 +7,7 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
+import { headers } from "next/headers";
 
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -21,10 +22,33 @@ import {
 /*  RP 配置                                                             */
 /* ------------------------------------------------------------------ */
 
-function getRpConfig() {
+/**
+ * 获取 WebAuthn RP 配置。
+ * 优先使用环境变量；未设置时自动从请求头推导，
+ * 避免部署后 origin/rpID 仍为 localhost 导致验证失败。
+ */
+async function getRpConfig() {
   const rpName = process.env.WEBAUTHN_RP_NAME ?? "NovelCraft";
-  const rpID = process.env.WEBAUTHN_RP_ID ?? "localhost";
-  const origin = process.env.WEBAUTHN_ORIGIN ?? "http://localhost:3000";
+
+  // 环境变量优先
+  const envRpID = process.env.WEBAUTHN_RP_ID;
+  const envOrigin = process.env.WEBAUTHN_ORIGIN;
+
+  if (envRpID && envOrigin) {
+    return { rpName, rpID: envRpID, origin: envOrigin };
+  }
+
+  // 从请求头自动推导
+  const hdrs = await headers();
+  const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost";
+  // x-forwarded-proto 可能是 "https, ..." 形式
+  const rawProto = hdrs.get("x-forwarded-proto") ?? "";
+  const proto = rawProto.split(",")[0].trim() || (host.startsWith("localhost") ? "http" : "https");
+
+  const origin = `${proto}://${host}`;
+  // rpID 是不带端口的域名
+  const rpID = host.split(":")[0];
+
   return { rpName, rpID, origin };
 }
 
@@ -50,6 +74,23 @@ async function requireUserId(): Promise<string> {
   return session.user.id;
 }
 
+/**
+ * 生成稳定的 WebAuthn userID（user handle）字符串。
+ * ——@simplewebauthn/server v9 的 userID 参数要求 string，
+ * 内部会以 UTF-8 编码后发给浏览器/Authenticator，要求 ≤ 64 字节。
+ * 做法：对用户 UUID 做 SHA-256，取前 32 字节，转 Base64URL（43 字符），
+ * UTF-8 编码后仍是 43 字节，远低于 64 字节上限，稳定、唯一、不可反向。
+ */
+async function createWebAuthnUserHandle(userId: string): Promise<string> {
+  const data = new TextEncoder().encode(userId);
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", data), 0, 32);
+  // Uint8Array -> base64url (无 padding)
+  let binary = "";
+  for (let i = 0; i < hash.length; i++) binary += String.fromCharCode(hash[i]);
+  const b64 = Buffer.from(binary, "binary").toString("base64");
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 /* ------------------------------------------------------------------ */
 /*  注册。 Passkey                                                       */
 /* ------------------------------------------------------------------ */
@@ -65,9 +106,17 @@ export async function generatePasskeyRegistrationOptions(): Promise<Registration
     const userId = await requireUserId();
     await cleanExpired();
 
-    const { rpName, rpID } = getRpConfig();
+    const { rpName, rpID } = await getRpConfig();
 
-    // 获取用户已有的凭?ID
+    // 查询用户名作为 userName（比 UUID 可读性更好，且不会影响唯一性，唯一性由 userID 保证）
+    const userRecord = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: { username: true, name: true },
+    });
+    const userName = userRecord?.username ?? userId.slice(0, 8);
+    const userDisplayName = userRecord?.name ?? userRecord?.username ?? "NovelCraft 用户";
+
+    // 获取用户已有的凭证 ID
     const existingCreds = await db.query.authenticators.findMany({
       where: eq(authenticators.userId, userId),
       columns: { credentialID: true },
@@ -77,11 +126,14 @@ export async function generatePasskeyRegistrationOptions(): Promise<Registration
       type: "public-key" as const,
     }));
 
+    const userHandle = await createWebAuthnUserHandle(userId);
+
     const options = await generateRegistrationOptions({
       rpName,
       rpID,
-      userName: userId,
-      userID: new TextEncoder().encode(userId) as unknown as string,
+      userName,
+      userDisplayName,
+      userID: userHandle,
       attestationType: "none",
       excludeCredentials: excludeCredentials as any,
       authenticatorSelection: {
@@ -118,7 +170,7 @@ export async function verifyPasskeyRegistration(
     const userId = await requireUserId();
     await cleanExpired();
 
-    const { rpID, origin } = getRpConfig();
+    const { rpID, origin } = await getRpConfig();
 
     // 查找最近的 registration challenge
     const challenge = await db.query.passkeyChallenges.findFirst({
@@ -170,7 +222,15 @@ export async function verifyPasskeyRegistration(
     return { ok: true, message: "Passkey 绑定成功" };
   } catch (error) {
     console.error("验证注册失败:", error);
-    return { ok: false, error: "绑定失败，请重试" };
+    const msg = error instanceof Error ? error.message : String(error);
+    // 向用户暴露有用的错误信息
+    if (msg.includes("origin") || msg.includes("Origin")) {
+      return { ok: false, error: "域名配置不匹配，请联系管理员检查 WEBAUTHN_RP_ID 和 WEBAUTHN_ORIGIN" };
+    }
+    if (msg.includes("challenge") || msg.includes("Challenge")) {
+      return { ok: false, error: "注册挑战验证失败，请重试" };
+    }
+    return { ok: false, error: `绑定失败：${msg}` };
   }
 }
 
@@ -196,7 +256,7 @@ export async function generatePasskeyAuthOptions(
 
     await cleanExpired();
 
-    const { rpID } = getRpConfig();
+    const { rpID } = await getRpConfig();
 
     // 查找用户
     const user = await db.query.users.findFirst({
@@ -260,7 +320,7 @@ export async function verifyPasskeyAuthentication(
 
     await cleanExpired();
 
-    const { rpID, origin } = getRpConfig();
+    const { rpID, origin } = await getRpConfig();
 
     // 查找用户
     const user = await db.query.users.findFirst({

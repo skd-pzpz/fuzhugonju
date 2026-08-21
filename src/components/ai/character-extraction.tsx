@@ -384,7 +384,10 @@ export function CharacterExtraction() {
           <PencilOff className="size-4" />
         </div>
         <p className="text-sm font-medium">分析失败</p>
-        <p className="text-xs text-muted-foreground">{error ?? "未知错误"}</p>
+        <p className="max-w-xs text-xs text-muted-foreground">{error ?? "未知错误"}</p>
+        <p className="text-xs text-muted-foreground/60">
+          请检查「设置 → AI 模型配置」中的 API Key 是否正确，或尝试更换模型
+        </p>
       </div>
     );
   }
