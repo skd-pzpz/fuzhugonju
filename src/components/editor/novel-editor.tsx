@@ -4,7 +4,7 @@ import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { FontFamily } from "@tiptap/extension-font-family";
 import { StarterKit } from "@tiptap/starter-kit";
 import { TextStyle } from "@tiptap/extension-text-style";
-import { FileText, ImageUp, Loader2, RefreshCw, Save, Trash2 } from "lucide-react";
+import { FileText, ImageUp, Loader2, Palette, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -14,7 +14,16 @@ import { getChapterFocusEvent } from "@/app/actions/events";
 import { EditorContextMenu } from "@/components/editor/editor-context-menu";
 import { EditorToolbar } from "@/components/editor/editor-toolbar";
 import { SceneBreak } from "@/components/editor/scene-break";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useAnalysisStore } from "@/stores/analysis-store";
 import { useToastStore } from "@/stores/toast-store";
 import { useUIStore } from "@/stores/ui-store";
@@ -37,6 +46,10 @@ const DEFAULT_FONT_SIZE = "16";
 const BG_IMAGE_KEY = "novelcraft-editor-bg-image";
 const BG_OPACITY_KEY = "novelcraft-editor-bg-opacity";
 const DEFAULT_BG_OPACITY = "15";
+const BG_BLUR_KEY = "novelcraft-editor-bg-blur";
+const DEFAULT_BG_BLUR = "16";
+const BG_GRADIENT_KEY = "novelcraft-editor-bg-gradient";
+const BG_NOISE_KEY = "novelcraft-editor-bg-noise";
 
 /** 防抖保存延迟（停止打字后立即保存） */
 const DEBOUNCE_SAVE_MS = 300;
@@ -215,11 +228,15 @@ export function NovelEditor({
     }
   }, []);
 
-  /* ---------------- 编辑器背景图片 & 透明度 ---------------- */
+  /* ---------------- 编辑器背景图片 & 效果 ---------------- */
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [bgDialogOpen, setBgDialogOpen] = useState(false);
   const [bgImage, setBgImage] = useState("");
   const [bgOpacity, setBgOpacity] = useState(DEFAULT_BG_OPACITY);
+  const [bgBlur, setBgBlur] = useState(DEFAULT_BG_BLUR);
+  const [bgGradient, setBgGradient] = useState(true);
+  const [bgNoise, setBgNoise] = useState(true);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -227,6 +244,12 @@ export function NovelEditor({
     if (savedImage) setBgImage(savedImage);
     const savedOpacity = window.localStorage.getItem(BG_OPACITY_KEY);
     if (savedOpacity) setBgOpacity(savedOpacity);
+    const savedBlur = window.localStorage.getItem(BG_BLUR_KEY);
+    if (savedBlur) setBgBlur(savedBlur);
+    const savedGradient = window.localStorage.getItem(BG_GRADIENT_KEY);
+    if (savedGradient !== null) setBgGradient(savedGradient === "true");
+    const savedNoise = window.localStorage.getItem(BG_NOISE_KEY);
+    if (savedNoise !== null) setBgNoise(savedNoise === "true");
   }, []);
 
   const handleBgImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -239,20 +262,44 @@ export function NovelEditor({
       window.localStorage.setItem(BG_IMAGE_KEY, dataUrl);
     };
     reader.readAsDataURL(file);
-    // 重置 input 以便重复选择同一文件
     e.target.value = "";
   }, []);
 
   const handleBgImageRemove = useCallback(() => {
     setBgImage("");
     setBgOpacity(DEFAULT_BG_OPACITY);
-    window.localStorage.removeItem(BG_IMAGE_KEY);
-    window.localStorage.removeItem(BG_OPACITY_KEY);
+    setBgBlur(DEFAULT_BG_BLUR);
+    setBgGradient(true);
+    setBgNoise(true);
+    localStorage.removeItem(BG_IMAGE_KEY);
+    localStorage.removeItem(BG_OPACITY_KEY);
+    localStorage.removeItem(BG_BLUR_KEY);
+    localStorage.removeItem(BG_GRADIENT_KEY);
+    localStorage.removeItem(BG_NOISE_KEY);
   }, []);
 
-  const handleBgOpacityChange = useCallback((value: string) => {
-    setBgOpacity(value);
-    window.localStorage.setItem(BG_OPACITY_KEY, value);
+  const setAndPersist = useCallback(
+    <T,>(key: string, setter: (v: T) => void, value: T) => {
+      setter(value);
+      window.localStorage.setItem(key, String(value));
+    },
+    [],
+  );
+
+  /* ---------------- 暗色模式检测 ---------------- */
+
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    setIsDark(document.documentElement.classList.contains("dark"));
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -503,17 +550,66 @@ export function NovelEditor({
             : undefined
         }
       >
+        {/* 柔焦渐变遮罩 - 压暗+去饱和背景图 */}
+        {bgImage && bgGradient && (
+          <div
+            className="pointer-events-none fixed inset-0"
+            style={{
+              background: isDark
+                ? "linear-gradient(135deg, rgba(5,10,15,0.8) 0%, rgba(10,20,25,0.7) 100%)"
+                : "linear-gradient(135deg, rgba(15,46,40,0.55) 0%, rgba(30,70,60,0.45) 50%, rgba(10,35,30,0.6) 100%)",
+              zIndex: 0,
+            }}
+          />
+        )}
+
+        {/* 噪点纹理 - 增加纸张/画布质感 */}
+        {bgImage && bgNoise && (
+          <div
+            className="pointer-events-none fixed inset-0"
+            style={{
+              opacity: 0.03,
+              backgroundImage:
+                "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E\")",
+              zIndex: 1,
+            }}
+          />
+        )}
+
         <div
-          className="mx-auto w-full max-w-3xl px-8 py-8"
+          className="mx-auto w-full px-6 py-8"
           style={
             bgImage
               ? {
-                  backgroundColor: `rgba(255, 255, 255, ${Number(bgOpacity) / 100})`,
-                  borderRadius: "8px",
-                  marginTop: "1rem",
-                  marginBottom: "1rem",
+                  maxWidth: "760px",
+                  background: isDark
+                    ? `rgba(30, 30, 35, ${Number(bgOpacity) / 100})`
+                    : `rgba(255, 255, 255, ${Number(bgOpacity) / 100})`,
+                  backdropFilter: `blur(${bgBlur}px) saturate(1.2)`,
+                  WebkitBackdropFilter: `blur(${bgBlur}px) saturate(1.2)`,
+                  borderRadius: "12px",
+                  marginTop: "3rem",
+                  marginBottom: "3rem",
+                  border: isDark
+                    ? "1px solid rgba(255,255,255,0.08)"
+                    : "1px solid rgba(255,255,255,0.35)",
+                  boxShadow: isDark
+                    ? `
+                      0 8px 32px rgba(0,0,0,0.4),
+                      inset 0 1px 0 rgba(255,255,255,0.06)
+                    `
+                    : `
+                      0 8px 32px rgba(0,0,0,0.12),
+                      inset 0 1px 0 rgba(255,255,255,0.4),
+                      inset 0 -1px 0 rgba(0,0,0,0.05)
+                    `,
+                  willChange: "backdrop-filter",
+                  position: "relative",
+                  zIndex: 2,
                 }
-              : undefined
+              : {
+                  maxWidth: "760px",
+                }
           }
         >
           <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -549,7 +645,7 @@ export function NovelEditor({
           场景 <span className="font-medium text-foreground">{stats.sceneCount}</span>
         </span>
 
-        {/* 编辑背景 */}
+        {/* 编辑背景 - 统一按钮 */}
         <div className="flex items-center gap-1.5">
           <input
             ref={fileInputRef}
@@ -560,33 +656,17 @@ export function NovelEditor({
           />
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            title="设置编辑背景"
+            onClick={() => setBgDialogOpen(true)}
+            className={`flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors ${
+              bgImage
+                ? "bg-primary/10 text-primary hover:bg-primary/20"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+            title="编辑背景设置"
           >
-            <ImageUp className="size-3" />
+            <Palette className="size-3" />
+            {bgImage ? "背景" : "背景"}
           </button>
-          {bgImage && (
-            <>
-              <input
-                type="range"
-                min="5"
-                max="95"
-                value={bgOpacity}
-                onChange={(e) => handleBgOpacityChange(e.target.value)}
-                className="h-1 w-16 cursor-pointer accent-primary"
-                title={`背景透明度：${bgOpacity}%`}
-              />
-              <button
-                type="button"
-                onClick={handleBgImageRemove}
-                className="flex items-center gap-1 rounded p-0.5 text-muted-foreground hover:text-destructive transition-colors"
-                title="移除背景"
-              >
-                <Trash2 className="size-3" />
-              </button>
-            </>
-          )}
         </div>
 
         <span className="ml-auto flex items-center gap-1.5">
@@ -606,6 +686,117 @@ export function NovelEditor({
           )}
         </span>
       </div>
+
+      {/* 背景设置对话框 */}
+      <Dialog open={bgDialogOpen} onOpenChange={setBgDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Palette className="size-4" />
+              编辑背景设置
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            {/* 上传图片 */}
+            <div className="space-y-2">
+              <Label>背景图片</Label>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="gap-1.5"
+                >
+                  <ImageUp className="size-4" />
+                  {bgImage ? "更换图片" : "上传图片"}
+                </Button>
+                {bgImage && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleBgImageRemove}
+                    className="gap-1.5 text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="size-4" />
+                    移除
+                  </Button>
+                )}
+              </div>
+              {bgImage && (
+                <p className="text-xs text-muted-foreground">
+                  图片已加载，可调整下方参数
+                </p>
+              )}
+            </div>
+
+            {bgImage && (
+              <>
+                {/* 分隔线 */}
+                <div className="border-t border-border" />
+
+                {/* 透明度 */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>卡片透明度</Label>
+                    <span className="text-xs text-muted-foreground">{bgOpacity}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="95"
+                    value={bgOpacity}
+                    onChange={(e) =>
+                      setAndPersist(BG_OPACITY_KEY, setBgOpacity, e.target.value)
+                    }
+                    className="h-1.5 w-full cursor-pointer accent-primary"
+                  />
+                </div>
+
+                {/* 毛玻璃模糊强度 */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>模糊强度</Label>
+                    <span className="text-xs text-muted-foreground">{bgBlur}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="4"
+                    max="30"
+                    value={bgBlur}
+                    onChange={(e) =>
+                      setAndPersist(BG_BLUR_KEY, setBgBlur, e.target.value)
+                    }
+                    className="h-1.5 w-full cursor-pointer accent-primary"
+                  />
+                </div>
+
+                {/* 柔焦遮罩 */}
+                <div className="flex items-center justify-between">
+                  <Label>柔焦渐变遮罩</Label>
+                  <Switch
+                    checked={bgGradient}
+                    onCheckedChange={(v) =>
+                      setAndPersist(BG_GRADIENT_KEY, setBgGradient, v)
+                    }
+                  />
+                </div>
+
+                {/* 噪点纹理 */}
+                <div className="flex items-center justify-between">
+                  <Label>画布噪点纹理</Label>
+                  <Switch
+                    checked={bgNoise}
+                    onCheckedChange={(v) =>
+                      setAndPersist(BG_NOISE_KEY, setBgNoise, v)
+                    }
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
