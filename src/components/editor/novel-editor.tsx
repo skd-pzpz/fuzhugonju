@@ -4,7 +4,7 @@ import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { FontFamily } from "@tiptap/extension-font-family";
 import { StarterKit } from "@tiptap/starter-kit";
 import { TextStyle } from "@tiptap/extension-text-style";
-import { FileText, GripVertical, ImageUp, Loader2, Palette, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
+import { FileText, GripVertical, ImageUp, Loader2, Maximize2, Minimize2, Palette, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -50,6 +50,19 @@ const BG_BLUR_KEY = "novelcraft-editor-bg-blur";
 const DEFAULT_BG_BLUR = "16";
 const BG_NOISE_KEY = "novelcraft-editor-bg-noise";
 
+/** 背景图片显示方式 & 位置，持久化到 localStorage */
+const BG_SIZE_KEY = "novelcraft-editor-bg-size";
+const BG_POSITION_KEY = "novelcraft-editor-bg-position";
+const BG_BLUR_ENABLED_KEY = "novelcraft-editor-bg-blur-enabled";
+
+/** 卡片样式，持久化到 localStorage */
+const CARD_STYLE_KEY = "novelcraft-editor-card-style";
+type CardStyle = "glass" | "paper" | "notebook";
+const DEFAULT_CARD_STYLE: CardStyle = "glass";
+
+/** 沉浸写作模式，持久化到 localStorage */
+const IMMERSIVE_KEY = "novelcraft-editor-immersive";
+
 /** 编辑器卡片宽度（可拖拽缩放），持久化到 localStorage */
 const CARD_WIDTH_KEY = "novelcraft-editor-card-width";
 const DEFAULT_CARD_WIDTH = 760;
@@ -92,6 +105,93 @@ function computeStatsFromJson(contentJson: string): EditorStats {
     // 忽略无效 JSON
   }
   return { wordCount: text.replace(/\s+/g, "").length, sceneCount };
+}
+
+/** 卡片样式 - 根据所选风格返回 CSS 样式对象 */
+function getCardStyle(
+  style: CardStyle,
+  dark: boolean,
+  opacity: number,
+  blurEnabled: boolean,
+  blurPx: string,
+): React.CSSProperties {
+  const base: React.CSSProperties = {
+    borderRadius: "12px",
+    marginTop: "3rem",
+    marginBottom: "3rem",
+  };
+
+  if (style === "glass") {
+    return {
+      ...base,
+      background: dark
+        ? `rgba(30, 30, 35, ${opacity})`
+        : `rgba(255, 255, 255, ${opacity})`,
+      ...(blurEnabled
+        ? {
+            backdropFilter: `blur(${blurPx}px) saturate(1.2)`,
+            WebkitBackdropFilter: `blur(${blurPx}px) saturate(1.2)`,
+            willChange: "backdrop-filter",
+          }
+        : {}),
+      border: dark
+        ? "1px solid rgba(255,255,255,0.08)"
+        : "1px solid rgba(255,255,255,0.35)",
+      boxShadow: dark
+        ? `
+          0 8px 32px rgba(0,0,0,0.4),
+          inset 0 1px 0 rgba(255,255,255,0.06)
+        `
+        : `
+          0 8px 32px rgba(0,0,0,0.12),
+          inset 0 1px 0 rgba(255,255,255,0.4),
+          inset 0 -1px 0 rgba(0,0,0,0.05)
+        `,
+    };
+  }
+
+  if (style === "paper") {
+    return {
+      ...base,
+      background: dark
+        ? `rgba(40, 38, 33, ${opacity})`
+        : `rgba(245, 240, 232, ${opacity})`,
+      border: dark
+        ? "1px solid rgba(255,255,255,0.06)"
+        : "1px solid rgba(180, 170, 150, 0.3)",
+      boxShadow: dark
+        ? "0 4px 24px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.15)"
+        : "0 4px 24px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04)",
+      // 柔和纸纹
+      backgroundImage: dark
+        ? "radial-gradient(ellipse at 20% 50%, rgba(255,255,255,0.02) 0%, transparent 50%)"
+        : "radial-gradient(ellipse at 20% 50%, rgba(255,248,240,0.4) 0%, transparent 50%)",
+    };
+  }
+
+  // notebook
+  return {
+    ...base,
+    background: dark
+      ? `rgba(30, 32, 38, ${opacity})`
+      : `rgba(255, 255, 255, ${opacity})`,
+    border: dark
+      ? "1px solid rgba(255,255,255,0.06)"
+      : "1px solid rgba(200, 200, 210, 0.3)",
+    boxShadow: dark
+      ? "0 4px 20px rgba(0,0,0,0.25)"
+      : "0 4px 20px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03)",
+    // 笔记本横线
+    backgroundImage: dark
+      ? "repeating-linear-gradient(0deg, transparent, transparent 31px, rgba(255,255,255,0.04) 31px, rgba(255,255,255,0.04) 32px)"
+      : "repeating-linear-gradient(0deg, transparent, transparent 31px, rgba(200, 200, 215, 0.25) 31px, rgba(200, 200, 215, 0.25) 32px)",
+    // 左侧红色边线
+    outline: "none",
+    // 用伪元素无法在 inline style 实现，用 border-left 模拟
+    borderLeft: dark
+      ? "2px solid rgba(220, 80, 80, 0.2)"
+      : "2px solid rgba(220, 80, 80, 0.15)",
+  };
 }
 
 export function NovelEditor({
@@ -240,7 +340,12 @@ export function NovelEditor({
   const [bgImage, setBgImage] = useState("");
   const [bgOpacity, setBgOpacity] = useState(DEFAULT_BG_OPACITY);
   const [bgBlur, setBgBlur] = useState(DEFAULT_BG_BLUR);
+  const [bgBlurEnabled, setBgBlurEnabled] = useState(true);
   const [bgNoise, setBgNoise] = useState(true);
+  const [bgSize, setBgSize] = useState("cover");
+  const [bgPosition, setBgPosition] = useState("center");
+  const [cardStyle, setCardStyle] = useState<CardStyle>(DEFAULT_CARD_STYLE);
+  const [immersiveMode, setImmersiveMode] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -250,8 +355,18 @@ export function NovelEditor({
     if (savedOpacity) setBgOpacity(savedOpacity);
     const savedBlur = window.localStorage.getItem(BG_BLUR_KEY);
     if (savedBlur) setBgBlur(savedBlur);
+    const savedBlurEnabled = window.localStorage.getItem(BG_BLUR_ENABLED_KEY);
+    if (savedBlurEnabled !== null) setBgBlurEnabled(savedBlurEnabled === "true");
     const savedNoise = window.localStorage.getItem(BG_NOISE_KEY);
     if (savedNoise !== null) setBgNoise(savedNoise === "true");
+    const savedSize = window.localStorage.getItem(BG_SIZE_KEY);
+    if (savedSize) setBgSize(savedSize);
+    const savedPos = window.localStorage.getItem(BG_POSITION_KEY);
+    if (savedPos) setBgPosition(savedPos);
+    const savedStyle = window.localStorage.getItem(CARD_STYLE_KEY);
+    if (savedStyle === "glass" || savedStyle === "paper" || savedStyle === "notebook") setCardStyle(savedStyle);
+    const savedImmersive = window.localStorage.getItem(IMMERSIVE_KEY);
+    if (savedImmersive !== null) setImmersiveMode(savedImmersive === "true");
   }, []);
 
   const handleBgImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -271,11 +386,19 @@ export function NovelEditor({
     setBgImage("");
     setBgOpacity(DEFAULT_BG_OPACITY);
     setBgBlur(DEFAULT_BG_BLUR);
+    setBgBlurEnabled(true);
     setBgNoise(true);
+    setBgSize("cover");
+    setBgPosition("center");
+    setCardStyle(DEFAULT_CARD_STYLE);
     localStorage.removeItem(BG_IMAGE_KEY);
     localStorage.removeItem(BG_OPACITY_KEY);
     localStorage.removeItem(BG_BLUR_KEY);
+    localStorage.removeItem(BG_BLUR_ENABLED_KEY);
     localStorage.removeItem(BG_NOISE_KEY);
+    localStorage.removeItem(BG_SIZE_KEY);
+    localStorage.removeItem(BG_POSITION_KEY);
+    localStorage.removeItem(CARD_STYLE_KEY);
   }, []);
 
   const setAndPersist = useCallback(
@@ -285,6 +408,14 @@ export function NovelEditor({
     },
     [],
   );
+
+  const toggleImmersive = useCallback(() => {
+    setImmersiveMode((prev) => {
+      const next = !prev;
+      window.localStorage.setItem(IMMERSIVE_KEY, String(next));
+      return next;
+    });
+  }, []);
 
   /* ---------------- 编辑器卡片宽度（拖拽缩放） ---------------- */
 
@@ -344,21 +475,6 @@ export function NovelEditor({
     },
     [cardWidth],
   );
-
-  /* ---------------- 重置背景默认值 ---------------- */
-
-  const handleResetBgDefaults = useCallback(() => {
-    setBgImage("");
-    setBgOpacity(DEFAULT_BG_OPACITY);
-    setBgBlur(DEFAULT_BG_BLUR);
-    setBgNoise(true);
-    setCardWidth(DEFAULT_CARD_WIDTH);
-    localStorage.removeItem(BG_IMAGE_KEY);
-    localStorage.removeItem(BG_OPACITY_KEY);
-    localStorage.removeItem(BG_BLUR_KEY);
-    localStorage.removeItem(BG_NOISE_KEY);
-    localStorage.removeItem(CARD_WIDTH_KEY);
-  }, []);
 
   /* ---------------- 暗色模式检测 ---------------- */
 
@@ -594,8 +710,12 @@ export function NovelEditor({
             : "暂无保存";
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
-      {editor && (
+    <div
+      className={`flex h-full flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm ${
+        immersiveMode ? "fixed inset-0 z-50 rounded-none border-none shadow-none" : ""
+      }`}
+    >
+      {editor && !immersiveMode && (
         <EditorToolbar
           editor={editor}
           onInsertScene={insertSceneBreak}
@@ -610,14 +730,14 @@ export function NovelEditor({
 
       {/* 编辑区 */}
       <div
-        className="min-h-0 flex-1 overflow-y-auto"
+        className={`min-h-0 flex-1 overflow-y-auto ${immersiveMode ? "h-dvh" : ""}`}
         onContextMenu={handleEditorContextMenu}
         style={
           bgImage
             ? {
                 backgroundImage: `url(${bgImage})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
+                backgroundSize: bgSize,
+                backgroundPosition: bgPosition,
                 backgroundRepeat: "no-repeat",
                 backgroundAttachment: "fixed",
               }
@@ -643,28 +763,7 @@ export function NovelEditor({
             bgImage
               ? {
                   maxWidth: `${cardWidth}px`,
-                  background: isDark
-                    ? `rgba(30, 30, 35, ${Number(bgOpacity) / 100})`
-                    : `rgba(255, 255, 255, ${Number(bgOpacity) / 100})`,
-                  backdropFilter: `blur(${bgBlur}px) saturate(1.2)`,
-                  WebkitBackdropFilter: `blur(${bgBlur}px) saturate(1.2)`,
-                  borderRadius: "12px",
-                  marginTop: "3rem",
-                  marginBottom: "3rem",
-                  border: isDark
-                    ? "1px solid rgba(255,255,255,0.08)"
-                    : "1px solid rgba(255,255,255,0.35)",
-                  boxShadow: isDark
-                    ? `
-                      0 8px 32px rgba(0,0,0,0.4),
-                      inset 0 1px 0 rgba(255,255,255,0.06)
-                    `
-                    : `
-                      0 8px 32px rgba(0,0,0,0.12),
-                      inset 0 1px 0 rgba(255,255,255,0.4),
-                      inset 0 -1px 0 rgba(0,0,0,0.05)
-                    `,
-                  willChange: "backdrop-filter",
+                  ...getCardStyle(cardStyle, isDark, Number(bgOpacity) / 100, bgBlurEnabled, bgBlur),
                   position: "relative",
                   zIndex: 2,
                 }
@@ -707,62 +806,87 @@ export function NovelEditor({
         onRequestAdvice={handleRequestAdvice}
       />
 
-      {/* 底部状态栏 */}
-      <div className="flex h-9 shrink-0 items-center gap-4 border-t border-border px-4 text-xs text-muted-foreground">
-        <span>
-          字数 <span className="font-medium text-foreground">{stats.wordCount}</span>
-        </span>
-        <span>
-          场景 <span className="font-medium text-foreground">{stats.sceneCount}</span>
-        </span>
+      {/* 底部状态栏 - 沉浸模式隐藏 */}
+      {!immersiveMode && (
+        <div className="flex h-9 shrink-0 items-center gap-4 border-t border-border px-4 text-xs text-muted-foreground">
+          <span>
+            字数 <span className="font-medium text-foreground">{stats.wordCount}</span>
+          </span>
+          <span>
+            场景 <span className="font-medium text-foreground">{stats.sceneCount}</span>
+          </span>
 
-        {/* 卡片宽度 */}
-        <span className="hidden sm:inline-flex items-center gap-1">
-          <GripVertical className="size-3" />
-          {cardWidth}px
-        </span>
+          {/* 卡片宽度 */}
+          <span className="hidden sm:inline-flex items-center gap-1">
+            <GripVertical className="size-3" />
+            {cardWidth}px
+          </span>
 
-        {/* 编辑背景 - 统一按钮 */}
-        <div className="flex items-center gap-1.5">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleBgImageUpload}
-          />
-          <button
-            type="button"
-            onClick={() => setBgDialogOpen(true)}
-            className={`flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors ${
-              bgImage
-                ? "bg-primary/10 text-primary hover:bg-primary/20"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
-            title="编辑背景设置"
-          >
-            <Palette className="size-3" />
-            {bgImage ? "背景" : "背景"}
-          </button>
-        </div>
-
-        <span className="ml-auto flex items-center gap-1.5">
-          {saveState === "saving" && <Loader2 className="size-3 animate-spin" />}
-          {saveState === "saved" && <Save className="size-3" />}
-          {saveState === "error" ? (
+          {/* 编辑背景 - 统一按钮 */}
+          <div className="flex items-center gap-1.5">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleBgImageUpload}
+            />
             <button
               type="button"
-              onClick={() => void flushSave(true)}
-              className="flex items-center gap-1 text-destructive hover:text-destructive/80 transition-colors"
+              onClick={() => setBgDialogOpen(true)}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors ${
+                bgImage
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+              title="编辑背景设置"
             >
-              <RefreshCw className="size-3" />
-              {statusText}
+              <Palette className="size-3" />
+              背景
             </button>
-          ) : (
-            statusText
-          )}
-        </span>
-      </div>
+          </div>
+
+          <span className="ml-auto flex items-center gap-1.5">
+            {saveState === "saving" && <Loader2 className="size-3 animate-spin" />}
+            {saveState === "saved" && <Save className="size-3" />}
+            {saveState === "error" ? (
+              <button
+                type="button"
+                onClick={() => void flushSave(true)}
+                className="flex items-center gap-1 text-destructive hover:text-destructive/80 transition-colors"
+              >
+                <RefreshCw className="size-3" />
+                {statusText}
+              </button>
+            ) : (
+              statusText
+            )}
+          </span>
+
+          {/* 沉浸模式切换 */}
+          <button
+            type="button"
+            onClick={toggleImmersive}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title="沉浸写作模式"
+          >
+            <Maximize2 className="size-3" />
+          </button>
+        </div>
+      )}
+
+      {/* 沉浸模式退出按钮 */}
+      {immersiveMode && (
+        <button
+          type="button"
+          onClick={toggleImmersive}
+          className="fixed top-3 right-3 z-50 flex items-center gap-1.5 rounded-lg bg-background/80 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur-sm border border-border hover:bg-background hover:text-foreground transition-all opacity-30 hover:opacity-100"
+          title="退出沉浸模式"
+        >
+          <Minimize2 className="size-3.5" />
+          退出
+        </button>
+      )}
 
       {/* 背景设置对话框 */}
       <Dialog open={bgDialogOpen} onOpenChange={setBgDialogOpen}>
@@ -830,22 +954,73 @@ export function NovelEditor({
                   />
                 </div>
 
-                {/* 毛玻璃模糊强度 */}
+                {/* 毛玻璃模糊 */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label>模糊强度</Label>
-                    <span className="text-xs text-muted-foreground">{bgBlur}px</span>
+                    <Label>毛玻璃模糊</Label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">{bgBlur}px</span>
+                      <Switch
+                        checked={bgBlurEnabled}
+                        onCheckedChange={(v) =>
+                          setAndPersist(BG_BLUR_ENABLED_KEY, setBgBlurEnabled, v)
+                        }
+                      />
+                    </div>
                   </div>
                   <input
                     type="range"
                     min="4"
                     max="30"
                     value={bgBlur}
+                    disabled={!bgBlurEnabled}
                     onChange={(e) =>
                       setAndPersist(BG_BLUR_KEY, setBgBlur, e.target.value)
                     }
-                    className="h-1.5 w-full cursor-pointer accent-primary"
+                    className="h-1.5 w-full cursor-pointer accent-primary disabled:opacity-40"
                   />
+                </div>
+
+                {/* 图片显示方式 */}
+                <div className="space-y-2">
+                  <Label>图片显示方式</Label>
+                  <div className="grid grid-cols-4 gap-1">
+                    {(["cover", "contain", "fill", "auto"] as const).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setAndPersist(BG_SIZE_KEY, setBgSize, s)}
+                        className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                          bgSize === s
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        }`}
+                      >
+                        {s === "cover" ? "铺满" : s === "contain" ? "适应" : s === "fill" ? "拉伸" : "原大小"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 图片位置 */}
+                <div className="space-y-2">
+                  <Label>图片位置</Label>
+                  <div className="grid grid-cols-3 gap-1">
+                    {(["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"] as const).map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setAndPersist(BG_POSITION_KEY, setBgPosition, p)}
+                        className={`rounded-md px-1 py-1 text-[11px] font-medium transition-colors ${
+                          bgPosition === p
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        }`}
+                      >
+                        {p === "center" ? "居中" : p === "top" ? "顶部" : p === "bottom" ? "底部" : p === "left" ? "左侧" : p === "right" ? "右侧" : p === "top-left" ? "左上" : p === "top-right" ? "右上" : p === "bottom-left" ? "左下" : "右下"}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* 噪点纹理 */}
@@ -862,16 +1037,26 @@ export function NovelEditor({
                 {/* 分隔线 */}
                 <div className="border-t border-border" />
 
-                {/* 重置默认 */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleResetBgDefaults}
-                  className="w-full gap-1.5"
-                >
-                  <RotateCcw className="size-4" />
-                  恢复默认设置
-                </Button>
+                {/* 卡片样式 */}
+                <div className="space-y-2">
+                  <Label>卡片样式</Label>
+                  <div className="grid grid-cols-3 gap-1">
+                    {(["glass", "paper", "notebook"] as const).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setAndPersist(CARD_STYLE_KEY, setCardStyle, s)}
+                        className={`rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                          cardStyle === s
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        }`}
+                      >
+                        {s === "glass" ? "毛玻璃" : s === "paper" ? "纸张" : "笔记本"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </>
             )}
           </div>
