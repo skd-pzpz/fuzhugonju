@@ -529,7 +529,7 @@ export function AppSidebar() {
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent text-sidebar-primary-foreground">
                   <Sparkles className="size-4" />
                 </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
+                <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
                   <span className="truncate font-semibold">NovelCraft</span>
                   <span className="truncate text-xs text-muted-foreground">
                     AI 小说创作

@@ -4,7 +4,7 @@ import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { FontFamily } from "@tiptap/extension-font-family";
 import { StarterKit } from "@tiptap/starter-kit";
 import { TextStyle } from "@tiptap/extension-text-style";
-import { FileText, ImageUp, Loader2, Palette, RefreshCw, Save, Trash2 } from "lucide-react";
+import { FileText, GripVertical, ImageUp, Loader2, Palette, RefreshCw, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -49,6 +49,12 @@ const DEFAULT_BG_OPACITY = "15";
 const BG_BLUR_KEY = "novelcraft-editor-bg-blur";
 const DEFAULT_BG_BLUR = "16";
 const BG_NOISE_KEY = "novelcraft-editor-bg-noise";
+
+/** 编辑器卡片宽度（可拖拽缩放），持久化到 localStorage */
+const CARD_WIDTH_KEY = "novelcraft-editor-card-width";
+const DEFAULT_CARD_WIDTH = 760;
+const MIN_CARD_WIDTH = 480;
+const MAX_CARD_WIDTH = 1200;
 
 /** 防抖保存延迟（停止打字后立即保存） */
 const DEBOUNCE_SAVE_MS = 300;
@@ -279,6 +285,80 @@ export function NovelEditor({
     },
     [],
   );
+
+  /* ---------------- 编辑器卡片宽度（拖拽缩放） ---------------- */
+
+  const [cardWidth, setCardWidth] = useState(DEFAULT_CARD_WIDTH);
+  const dragRef = useRef<{
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(CARD_WIDTH_KEY);
+    if (saved) {
+      const w = parseInt(saved, 10);
+      if (!isNaN(w) && w >= MIN_CARD_WIDTH && w <= MAX_CARD_WIDTH) {
+        setCardWidth(w);
+      }
+    }
+  }, []);
+
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault();
+      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+      const currentWidth = cardWidth;
+      dragRef.current = { startX: clientX, startWidth: currentWidth };
+
+      const onMove = (ev: MouseEvent | TouchEvent) => {
+        if (!dragRef.current) return;
+        const currentX = "touches" in ev ? ev.touches[0].clientX : ev.clientX;
+        const diff = currentX - dragRef.current.startX;
+        // 拖拽方向：向右拉变宽，向左拉变窄
+        const newWidth = Math.max(
+          MIN_CARD_WIDTH,
+          Math.min(MAX_CARD_WIDTH, dragRef.current.startWidth + diff),
+        );
+        setCardWidth(newWidth);
+      };
+
+      const onUp = () => {
+        if (!dragRef.current) return;
+        const finalWidth = Math.max(
+          MIN_CARD_WIDTH,
+          Math.min(MAX_CARD_WIDTH, dragRef.current.startWidth),
+        );
+        window.localStorage.setItem(CARD_WIDTH_KEY, String(finalWidth));
+        dragRef.current = null;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.removeEventListener("touchmove", onMove);
+        document.removeEventListener("touchend", onUp);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+      document.addEventListener("touchmove", onMove, { passive: false });
+      document.addEventListener("touchend", onUp);
+    },
+    [cardWidth],
+  );
+
+  /* ---------------- 重置背景默认值 ---------------- */
+
+  const handleResetBgDefaults = useCallback(() => {
+    setBgImage("");
+    setBgOpacity(DEFAULT_BG_OPACITY);
+    setBgBlur(DEFAULT_BG_BLUR);
+    setBgNoise(true);
+    setCardWidth(DEFAULT_CARD_WIDTH);
+    localStorage.removeItem(BG_IMAGE_KEY);
+    localStorage.removeItem(BG_OPACITY_KEY);
+    localStorage.removeItem(BG_BLUR_KEY);
+    localStorage.removeItem(BG_NOISE_KEY);
+    localStorage.removeItem(CARD_WIDTH_KEY);
+  }, []);
 
   /* ---------------- 暗色模式检测 ---------------- */
 
@@ -562,7 +642,7 @@ export function NovelEditor({
           style={
             bgImage
               ? {
-                  maxWidth: "760px",
+                  maxWidth: `${cardWidth}px`,
                   background: isDark
                     ? `rgba(30, 30, 35, ${Number(bgOpacity) / 100})`
                     : `rgba(255, 255, 255, ${Number(bgOpacity) / 100})`,
@@ -589,10 +669,20 @@ export function NovelEditor({
                   zIndex: 2,
                 }
               : {
-                  maxWidth: "760px",
+                  maxWidth: `${cardWidth}px`,
                 }
           }
         >
+          {/* 拖拽缩放手柄 */}
+          <div
+            className="absolute -right-3 top-0 bottom-0 z-10 flex cursor-col-resize items-center justify-center opacity-0 hover:opacity-100 transition-opacity touch-none select-none"
+            onMouseDown={handleResizeStart}
+            onTouchStart={handleResizeStart}
+          >
+            <div className="flex h-16 w-1.5 items-center justify-center rounded-full bg-border/60 hover:bg-primary/50 transition-colors">
+              <GripVertical className="size-3 text-muted-foreground" />
+            </div>
+          </div>
           <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
             <FileText className="size-3.5" />
             {novelTitle}
@@ -624,6 +714,12 @@ export function NovelEditor({
         </span>
         <span>
           场景 <span className="font-medium text-foreground">{stats.sceneCount}</span>
+        </span>
+
+        {/* 卡片宽度 */}
+        <span className="hidden sm:inline-flex items-center gap-1">
+          <GripVertical className="size-3" />
+          {cardWidth}px
         </span>
 
         {/* 编辑背景 - 统一按钮 */}
@@ -762,6 +858,20 @@ export function NovelEditor({
                     }
                   />
                 </div>
+
+                {/* 分隔线 */}
+                <div className="border-t border-border" />
+
+                {/* 重置默认 */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResetBgDefaults}
+                  className="w-full gap-1.5"
+                >
+                  <RotateCcw className="size-4" />
+                  恢复默认设置
+                </Button>
               </>
             )}
           </div>
