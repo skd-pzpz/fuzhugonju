@@ -136,6 +136,23 @@ export async function resetEventPositions(
   return { ok: true };
 }
 
+/** 删除单个事件（故事线节点） */
+export async function deleteEvent(
+  eventId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const userId = await requireUserId();
+
+  const event = await db.query.events.findFirst({
+    where: eq(events.id, eventId),
+    columns: { novelId: true },
+  });
+  if (!event) return { ok: false, error: "事件不存在" };
+  await requireNovelOwnership(event.novelId, userId);
+
+  await db.delete(events).where(eq(events.id, eventId));
+  return { ok: true };
+}
+
 /**
  * 编辑器「在故事线中查看」：返回当前章节的第一个事件 id（用于定位高亮），
  * 该章节无事件时返回 null。

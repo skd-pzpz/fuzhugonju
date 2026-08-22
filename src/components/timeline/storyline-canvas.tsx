@@ -24,10 +24,11 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { BookOpen, LayoutGrid, Sparkles } from "lucide-react";
+import { BookOpen, LayoutGrid, Sparkles, X } from "lucide-react";
 
 import {
   addEventEdge,
+  deleteEvent,
   removeEventEdge,
   resetEventPositions,
   updateEventPosition,
@@ -125,6 +126,20 @@ function EventNode({ data, selected }: NodeProps<EventFlowNode>) {
   const { event, highlight } = data;
   const isMain = event.storyline === "main";
   const chars = event.relatedCharacters;
+  const addToast = useToastStore((s) => s.addToast);
+
+  const handleDelete = async () => {
+    try {
+      const result = await deleteEvent(event.id);
+      if (result.ok) {
+        addToast(`已删除事件「${event.title}」`);
+      } else {
+        addToast(result.error ?? "删除失败", "error");
+      }
+    } catch {
+      addToast("删除失败，请稍后重试", "error");
+    }
+  };
 
   return (
     <div
@@ -142,6 +157,15 @@ function EventNode({ data, selected }: NodeProps<EventFlowNode>) {
         position={Position.Left}
         className="!h-2 !w-2 !border-background !bg-muted-foreground"
       />
+      {/* 删除按钮 - hover 时显示 */}
+      <button
+        type="button"
+        onClick={handleDelete}
+        className="absolute -top-2 -right-2 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-destructive hover:text-destructive-foreground group-hover:opacity-100"
+        title="删除事件"
+      >
+        <X className="size-3" />
+      </button>
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-snug">
           {event.title}

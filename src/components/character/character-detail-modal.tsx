@@ -1,7 +1,7 @@
 "use client";
 
-import { Loader2, Plus, Pencil, Trash2 } from "lucide-react";
-import { useState, useCallback } from "react";
+import { Loader2, Plus, Pencil, Trash2, X } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
 
 import { updateCharacter, type CharacterDetail } from "@/app/actions/characters";
 import { Badge } from "@/components/ui/badge";
@@ -163,6 +163,12 @@ export function CharacterDetailModal({
       customFields: detail.customFields ?? [],
     });
   }, [detail]);
+
+  // 当切换到其他角色时，退出编辑模式并重新初始化表单
+  useEffect(() => {
+    setEditing(false);
+    if (detail) initForm();
+  }, [detail, initForm]);
 
   const handleStartEdit = () => {
     initForm();
