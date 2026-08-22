@@ -53,6 +53,17 @@ const PRESET_FONT_SIZES = [
   { value: "24", label: "24px" },
 ];
 
+/** 行间距选项 */
+const LINE_HEIGHT_OPTIONS = [
+  { value: "1.0", label: "1.0" },
+  { value: "1.25", label: "1.25" },
+  { value: "1.5", label: "1.5" },
+  { value: "1.75", label: "1.75" },
+  { value: "2.0", label: "2.0" },
+  { value: "2.5", label: "2.5" },
+  { value: "3.0", label: "3.0" },
+];
+
 export function EditorToolbar({
   editor,
   onInsertScene,
@@ -62,6 +73,8 @@ export function EditorToolbar({
   onViewTimeline,
   fontSize = "16",
   onFontSizeChange,
+  lineHeight = "1.75",
+  onLineHeightChange,
 }: {
   editor: Editor;
   onInsertScene: () => void;
@@ -71,6 +84,8 @@ export function EditorToolbar({
   onViewTimeline?: () => void;
   fontSize?: string;
   onFontSizeChange?: (value: string) => void;
+  lineHeight?: string;
+  onLineHeightChange?: (value: string) => void;
 }) {
   const state = useEditorState({
     editor,
@@ -182,6 +197,30 @@ export function EditorToolbar({
           </SelectTrigger>
           <SelectContent>
             {fontSizeOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
+      {/* 行间距 */}
+      {onLineHeightChange && (
+        <Select value={lineHeight} onValueChange={(v) => { if (v) onLineHeightChange(v); }}>
+          <SelectTrigger
+            aria-label="行间距"
+            className="h-8 w-[80px] rounded-lg text-[13px]"
+          >
+            <SelectValue>
+              <span className="flex items-center gap-1.5">
+                <Pilcrow className="size-3.5" />
+                {lineHeight}
+              </span>
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {LINE_HEIGHT_OPTIONS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
