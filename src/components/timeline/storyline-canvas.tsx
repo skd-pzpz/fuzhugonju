@@ -470,7 +470,11 @@ export function StorylineCanvas({
               onValueChange={(v) => setSelectedChapterId(v === "all" ? null : v)}
             >
               <SelectTrigger className="h-7 w-[140px] rounded-lg border-border/60 px-2 text-[11px]">
-                <SelectValue placeholder="全部章节" />
+                <SelectValue placeholder="全部章节">
+                  {selectedChapterId
+                    ? chapters.find((ch) => ch.id === selectedChapterId)?.title ?? "全部章节"
+                    : "全部章节"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent className="text-xs">
                 <SelectItem value="all">全部章节</SelectItem>

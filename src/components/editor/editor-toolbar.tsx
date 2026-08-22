@@ -190,7 +190,7 @@ export function EditorToolbar({
         <Select value={displayFontSize} onValueChange={handleFontSizeSelect}>
           <SelectTrigger
             aria-label="显示字号"
-            className="h-8 w-[110px] rounded-lg text-[13px]"
+            className="h-8 w-[80px] rounded-lg text-[13px]"
           >
             <SelectValue>{fontSizeDisplay}</SelectValue>
           </SelectTrigger>
@@ -209,7 +209,7 @@ export function EditorToolbar({
         <Select value={lineHeight} onValueChange={(v) => { if (v) onLineHeightChange(v); }}>
           <SelectTrigger
             aria-label="行间距"
-            className="h-8 w-[90px] rounded-lg text-[13px]"
+            className="h-8 w-[110px] rounded-lg text-[13px]"
           >
             <SelectValue>
               <span className="flex items-center gap-1">
@@ -231,33 +231,29 @@ export function EditorToolbar({
       <Separator orientation="vertical" className="mx-1 h-5" />
 
       {/* 加粗 / 斜体 */}
-      <Tooltip>
-        <TooltipTrigger render={<Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="加粗"
-          className={cn(state.bold && "bg-muted text-foreground")}
-          onClick={() => editor?.chain().focus().toggleBold().run()}
-        >
-          <Bold className="size-4" />
-        </Button>} />
-        <TooltipContent>加粗</TooltipContent>
-      </Tooltip>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="加粗"
+        title="加粗 (Ctrl+B)"
+        className={cn(state.bold && "bg-muted text-foreground")}
+        onClick={() => editor?.chain().focus().toggleBold().run()}
+      >
+        <Bold className="size-4" />
+      </Button>
 
-      <Tooltip>
-        <TooltipTrigger render={<Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="斜体"
-          className={cn(state.italic && "bg-muted text-foreground")}
-          onClick={() => editor?.chain().focus().toggleItalic().run()}
-        >
-          <span className="font-serif italic leading-none">I</span>
-        </Button>} />
-        <TooltipContent>斜体</TooltipContent>
-      </Tooltip>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="斜体"
+        title="斜体 (Ctrl+I)"
+        className={cn(state.italic && "bg-muted text-foreground")}
+        onClick={() => editor?.chain().focus().toggleItalic().run()}
+      >
+        <span className="font-serif italic leading-none">I</span>
+      </Button>
 
       <Separator orientation="vertical" className="mx-1 h-5" />
 
