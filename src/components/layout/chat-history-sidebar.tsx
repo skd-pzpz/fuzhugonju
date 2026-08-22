@@ -187,7 +187,7 @@ export function ChatHistorySidebar() {
                   )}
 
                   {renamingId !== s.id && (
-                    <div className="absolute -right-0.5 top-1 hidden items-center gap-0.5 rounded-md bg-background shadow-sm group-hover:flex">
+                    <div className="absolute -right-0.5 top-1 hidden items-center gap-0.5 rounded-md bg-background shadow-sm max-md:flex group-hover:flex">
                       <button
                         className="rounded p-0.5 text-muted-foreground hover:text-foreground"
                         onClick={(e) => {

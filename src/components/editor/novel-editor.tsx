@@ -4,7 +4,7 @@ import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { FontFamily } from "@tiptap/extension-font-family";
 import { StarterKit } from "@tiptap/starter-kit";
 import { TextStyle } from "@tiptap/extension-text-style";
-import { FileText, Loader2, Save, RefreshCw } from "lucide-react";
+import { FileText, ImageUp, Loader2, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -32,6 +32,11 @@ type EditorStats = { wordCount: number; sceneCount: number };
 /** 编辑器显示字号（方案 B：只改显示，不影响导出内容），持久化到 localStorage */
 const FONT_SIZE_KEY = "novelcraft-editor-font-size";
 const DEFAULT_FONT_SIZE = "16";
+
+/** 编辑器背景图片 & 透明度，持久化到 localStorage */
+const BG_IMAGE_KEY = "novelcraft-editor-bg-image";
+const BG_OPACITY_KEY = "novelcraft-editor-bg-opacity";
+const DEFAULT_BG_OPACITY = "15";
 
 /** 防抖保存延迟（停止打字后立即保存） */
 const DEBOUNCE_SAVE_MS = 300;
@@ -208,6 +213,46 @@ export function NovelEditor({
     if (typeof window !== "undefined") {
       window.localStorage.setItem(FONT_SIZE_KEY, value);
     }
+  }, []);
+
+  /* ---------------- 编辑器背景图片 & 透明度 ---------------- */
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [bgImage, setBgImage] = useState("");
+  const [bgOpacity, setBgOpacity] = useState(DEFAULT_BG_OPACITY);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const savedImage = window.localStorage.getItem(BG_IMAGE_KEY);
+    if (savedImage) setBgImage(savedImage);
+    const savedOpacity = window.localStorage.getItem(BG_OPACITY_KEY);
+    if (savedOpacity) setBgOpacity(savedOpacity);
+  }, []);
+
+  const handleBgImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      setBgImage(dataUrl);
+      window.localStorage.setItem(BG_IMAGE_KEY, dataUrl);
+    };
+    reader.readAsDataURL(file);
+    // 重置 input 以便重复选择同一文件
+    e.target.value = "";
+  }, []);
+
+  const handleBgImageRemove = useCallback(() => {
+    setBgImage("");
+    setBgOpacity(DEFAULT_BG_OPACITY);
+    window.localStorage.removeItem(BG_IMAGE_KEY);
+    window.localStorage.removeItem(BG_OPACITY_KEY);
+  }, []);
+
+  const handleBgOpacityChange = useCallback((value: string) => {
+    setBgOpacity(value);
+    window.localStorage.setItem(BG_OPACITY_KEY, value);
   }, []);
 
   useEffect(() => {
@@ -446,8 +491,31 @@ export function NovelEditor({
       <div
         className="min-h-0 flex-1 overflow-y-auto"
         onContextMenu={handleEditorContextMenu}
+        style={
+          bgImage
+            ? {
+                backgroundImage: `url(${bgImage})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                backgroundRepeat: "no-repeat",
+                backgroundAttachment: "fixed",
+              }
+            : undefined
+        }
       >
-        <div className="mx-auto w-full max-w-3xl px-8 py-8">
+        <div
+          className="mx-auto w-full max-w-3xl px-8 py-8"
+          style={
+            bgImage
+              ? {
+                  backgroundColor: `rgba(255, 255, 255, ${Number(bgOpacity) / 100})`,
+                  borderRadius: "8px",
+                  marginTop: "1rem",
+                  marginBottom: "1rem",
+                }
+              : undefined
+          }
+        >
           <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
             <FileText className="size-3.5" />
             {novelTitle}
@@ -480,6 +548,47 @@ export function NovelEditor({
         <span>
           场景 <span className="font-medium text-foreground">{stats.sceneCount}</span>
         </span>
+
+        {/* 编辑背景 */}
+        <div className="flex items-center gap-1.5">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleBgImageUpload}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title="设置编辑背景"
+          >
+            <ImageUp className="size-3" />
+          </button>
+          {bgImage && (
+            <>
+              <input
+                type="range"
+                min="5"
+                max="95"
+                value={bgOpacity}
+                onChange={(e) => handleBgOpacityChange(e.target.value)}
+                className="h-1 w-16 cursor-pointer accent-primary"
+                title={`背景透明度：${bgOpacity}%`}
+              />
+              <button
+                type="button"
+                onClick={handleBgImageRemove}
+                className="flex items-center gap-1 rounded p-0.5 text-muted-foreground hover:text-destructive transition-colors"
+                title="移除背景"
+              >
+                <Trash2 className="size-3" />
+              </button>
+            </>
+          )}
+        </div>
+
         <span className="ml-auto flex items-center gap-1.5">
           {saveState === "saving" && <Loader2 className="size-3 animate-spin" />}
           {saveState === "saved" && <Save className="size-3" />}
