@@ -34,12 +34,14 @@ function CharacterCard({
   selected,
   onToggleSelect,
   selectionMode,
+  onDeleteOptimistic,
 }: {
   character: CharacterCardData;
   onClick: () => void;
   selected: boolean;
   onToggleSelect: (id: string) => void;
   selectionMode: boolean;
+  onDeleteOptimistic: (id: string, name: string) => void;
 }) {
   const router = useRouter();
   const addToast = useToastStore((s) => s.addToast);
@@ -48,17 +50,20 @@ function CharacterCard({
   const handleDelete = async () => {
     if (deleting) return;
     setDeleting(true);
+    // 乐观删除：立即从 UI 移除，后端异步处理
+    onDeleteOptimistic(character.id, character.name);
+    addToast(`正在删除角色「${character.name}」…`);
     try {
       const result = await deleteCharacter(character.id);
       if (result.ok) {
-        addToast(`已删除角色「${character.name}」`);
         useAnalysisStore.getState().removeCharactersByName(character.name);
-        router.refresh();
       } else {
         addToast(result.error, "error");
+        router.refresh(); // 删除失败，回滚 UI
       }
     } catch {
       addToast("删除失败，请稍后重试", "error");
+      router.refresh(); // 删除失败，回滚 UI
     } finally {
       setDeleting(false);
     }
@@ -285,6 +290,10 @@ export function CharactersPageClient({
     }
   };
 
+  const handleSingleDeleteOptimistic = useCallback((id: string, name: string) => {
+    setLocalCharacters((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
   if (!novelId) {
     return (
       <div className="mx-auto h-full max-w-4xl">
@@ -425,6 +434,7 @@ export function CharactersPageClient({
               selected={selectedIds.has(character.id)}
               onToggleSelect={toggleSelect}
               selectionMode={selectionMode}
+              onDeleteOptimistic={handleSingleDeleteOptimistic}
             />
           ))}
         </div>

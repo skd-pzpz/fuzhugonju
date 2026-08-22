@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq, or } from "drizzle-orm";
+import { and, asc, eq, inArray, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
@@ -77,30 +77,28 @@ export async function deleteCharacters(characterIds: string[]) {
   try {
     // 1. 一次性查询所有角色，确认归属
     const allChars = await db.query.characters.findMany({
-      where: or(...characterIds.map((id) => eq(characters.id, id))),
+      where: inArray(characters.id, characterIds),
       columns: { id: true, novelId: true },
     });
 
-    // 2. 检查每个角色所属小说是否为本用户
-    for (const c of allChars) {
-      await requireNovelOwnership(c.novelId, userId);
+    if (allChars.length === 0) return { ok: false as const, error: "角色不存在" };
+
+    // 2. 检查所有所属小说是否为本用户（去重后只查一次）
+    const novelIds = [...new Set(allChars.map((c) => c.novelId))];
+    for (const nid of novelIds) {
+      await requireNovelOwnership(nid, userId);
     }
 
     const ids = allChars.map((c) => c.id);
-    if (ids.length === 0) return { ok: false as const, error: "角色不存在" };
 
     // 3. 单事务批量删除
     await db.transaction(async (tx) => {
       await tx
         .delete(characterAppearances)
-        .where(
-          and(...ids.map((id) => eq(characterAppearances.characterId, id))),
-        );
+        .where(inArray(characterAppearances.characterId, ids));
       await tx
         .delete(characters)
-        .where(
-          and(...ids.map((id) => eq(characters.id, id))),
-        );
+        .where(inArray(characters.id, ids));
     });
   } catch (error) {
     console.error("批量删除角色失败：", error);
