@@ -24,7 +24,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import { LayoutGrid, Sparkles } from "lucide-react";
+import { BookOpen, LayoutGrid, Sparkles } from "lucide-react";
 
 import {
   addEventEdge,
@@ -34,6 +34,13 @@ import {
 } from "@/app/actions/events";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToastStore } from "@/stores/toast-store";
 import { cn } from "@/lib/utils";
 
@@ -71,6 +78,9 @@ const NODE_WIDTH = 240;
 const COL_GAP = 280;
 const MAIN_Y = 40;
 const BRANCH_Y = 260;
+/** 每行最多事件数，超出则换行，避免故事线过长导致缩放过度 */
+const MAX_EVENTS_PER_ROW = 12;
+const ROW_GAP = 220;
 
 /** 角色头像背景色（按名字哈希取色） */
 const AVATAR_PALETTE = [
@@ -88,17 +98,19 @@ function avatarColor(name: string): string {
   return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
 }
 
-/** 无保存位置时的自动排列：主线横排、支线在其下方一排 */
+/** 无保存位置时的自动排列：主线横排、支线在其下方一排，超出 MAX_EVENTS_PER_ROW 则换行 */
 function autoLayout(eventsList: TimelineEvent[]): Record<string, { x: number; y: number }> {
   const positions: Record<string, { x: number; y: number }> = {};
   let mainCount = 0;
   let branchCount = 0;
   for (const ev of [...eventsList].sort((a, b) => a.position - b.position)) {
     if (ev.storyline === "branch") {
-      positions[ev.id] = { x: branchCount * COL_GAP, y: BRANCH_Y };
+      const row = Math.floor(branchCount / MAX_EVENTS_PER_ROW);
+      positions[ev.id] = { x: (branchCount % MAX_EVENTS_PER_ROW) * COL_GAP, y: BRANCH_Y + row * ROW_GAP };
       branchCount += 1;
     } else {
-      positions[ev.id] = { x: mainCount * COL_GAP, y: MAIN_Y };
+      const row = Math.floor(mainCount / MAX_EVENTS_PER_ROW);
+      positions[ev.id] = { x: (mainCount % MAX_EVENTS_PER_ROW) * COL_GAP, y: MAIN_Y + row * ROW_GAP };
       mainCount += 1;
     }
   }
@@ -197,21 +209,69 @@ export function StorylineCanvas({
   novelId,
   events: initialEvents,
   focusEventId,
+  chapters,
 }: {
   novelId: string;
   events: TimelineEvent[];
   focusEventId?: string | null;
+  chapters: { id: string; title: string }[];
 }) {
   const { mode } = useTheme();
   const isDark = mode === "dark";
   const addToast = useToastStore((s) => s.addToast);
   const reactFlow = useReactFlow();
 
+  /* ---- 章节选择 ---- */
+  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
+
+  /* ---- 按章节过滤事件 ---- */
+  const filteredEvents = useMemo(() => {
+    if (!selectedChapterId) return initialEvents;
+    return initialEvents.filter((e) => e.chapterId === selectedChapterId);
+  }, [initialEvents, selectedChapterId]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<EventFlowNode>(
+    filteredEvents.map((ev) => {
+      const auto = autoLayout(filteredEvents);
+      const pos =
+        ev.x !== null && ev.y !== null
+          ? { x: ev.x, y: ev.y }
+          : (auto[ev.id] ?? { x: 0, y: 0 });
+      return {
+        id: ev.id,
+        type: "event" as const,
+        position: pos,
+        data: { event: ev, highlight: false },
+        deletable: false,
+      };
+    }),
+  );
+
+  /* ---- 章节切换时重建节点 ---- */
+  useEffect(() => {
+    const auto = autoLayout(filteredEvents);
+    setNodes(
+      filteredEvents.map((ev) => {
+        const pos =
+          ev.x !== null && ev.y !== null
+            ? { x: ev.x, y: ev.y }
+            : (auto[ev.id] ?? { x: 0, y: 0 });
+        return {
+          id: ev.id,
+          type: "event" as const,
+          position: pos,
+          data: { event: ev, highlight: false },
+          deletable: false,
+        };
+      }),
+    );
+  }, [filteredEvents, setNodes]);
+
   /* ---- 自动边：按时间顺序在同一故事线内依次连接 ---- */
   const autoEdges = useMemo(() => {
     const result: Edge[] = [];
     for (const line of ["main", "branch"] as const) {
-      const lineEvents = [...initialEvents]
+      const lineEvents = [...filteredEvents]
         .filter((e) => e.storyline === line)
         .sort((a, b) => a.position - b.position);
       for (let i = 0; i < lineEvents.length - 1; i++) {
@@ -238,14 +298,14 @@ export function StorylineCanvas({
       }
     }
     return result;
-  }, [initialEvents]);
+  }, [filteredEvents]);
 
   /* ---- 手动边：来自 events.data.outgoing ---- */
   const savedManualEdges = useMemo(() => {
     const result: Edge[] = [];
-    for (const ev of initialEvents) {
+    for (const ev of filteredEvents) {
       for (const targetId of ev.outgoing) {
-        if (!initialEvents.some((e) => e.id === targetId)) continue;
+        if (!filteredEvents.some((e) => e.id === targetId)) continue;
         result.push({
           id: `m-${ev.id}-${targetId}`,
           source: ev.id,
@@ -257,31 +317,13 @@ export function StorylineCanvas({
       }
     }
     return result;
-  }, [initialEvents]);
+  }, [filteredEvents]);
 
   const [manualEdges, setManualEdges, onManualEdgesChange] =
     useEdgesState<Edge>(savedManualEdges);
   const combinedEdges = useMemo(
     () => [...autoEdges, ...manualEdges],
     [autoEdges, manualEdges],
-  );
-
-  /* ---- 节点 ---- */
-  const [nodes, setNodes, onNodesChange] = useNodesState<EventFlowNode>(
-    initialEvents.map((ev) => {
-      const auto = autoLayout(initialEvents);
-      const pos =
-        ev.x !== null && ev.y !== null
-          ? { x: ev.x, y: ev.y }
-          : (auto[ev.id] ?? { x: 0, y: 0 });
-      return {
-        id: ev.id,
-        type: "event" as const,
-        position: pos,
-        data: { event: ev, highlight: false },
-        deletable: false,
-      };
-    }),
   );
 
   /* ---- 边事件：仅处理手动边（m- 前缀） ---- */
@@ -340,7 +382,7 @@ export function StorylineCanvas({
 
   /* ---- 重置布局 ---- */
   const handleResetLayout = useCallback(async () => {
-    const auto = autoLayout(initialEvents);
+    const auto = autoLayout(filteredEvents);
     setNodes((ns) =>
       ns.map((n) => ({
         ...n,
@@ -349,7 +391,7 @@ export function StorylineCanvas({
     );
     await resetEventPositions(novelId);
     addToast("已重置为自动布局");
-  }, [initialEvents, novelId, setNodes, addToast]);
+  }, [filteredEvents, novelId, setNodes, addToast]);
 
   /* ---- 聚焦定位（编辑器「在故事线中查看」跳转带 focus 参数） ----
      注意：不要用 ref 做"只执行一次"守卫——dev StrictMode 会先运行 effect 再 cleanup
@@ -419,7 +461,30 @@ export function StorylineCanvas({
           className="!bg-card/80"
         />
 
-        <Panel position="top-left" className="flex items-center gap-2">
+        <Panel position="top-left" className="flex items-center gap-3">
+          {/* 章节选择器 */}
+          <div className="flex items-center gap-1.5">
+            <BookOpen className="size-3.5 text-muted-foreground" />
+            <Select
+              value={selectedChapterId ?? "all"}
+              onValueChange={(v) => setSelectedChapterId(v === "all" ? null : v)}
+            >
+              <SelectTrigger className="h-7 w-[140px] rounded-lg border-border/60 px-2 text-[11px]">
+                <SelectValue placeholder="全部章节" />
+              </SelectTrigger>
+              <SelectContent className="text-xs">
+                <SelectItem value="all">全部章节</SelectItem>
+                {chapters.map((ch) => (
+                  <SelectItem key={ch.id} value={ch.id}>
+                    {ch.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <span className="text-[11px] text-muted-foreground">
+            {filteredEvents.length} 个事件
+          </span>
           <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <span className="size-2 rounded-full bg-blue-500" /> 主线
           </span>

@@ -26,10 +26,12 @@ export default function StorylineCanvasLazy({
   novelId,
   events,
   focusEventId,
+  chapters,
 }: {
   novelId: string;
   events: TimelineEvent[];
   focusEventId?: string | null;
+  chapters: { id: string; title: string }[];
 }) {
   return (
     <ReactFlowProvider>
@@ -37,6 +39,7 @@ export default function StorylineCanvasLazy({
         novelId={novelId}
         events={events}
         focusEventId={focusEventId}
+        chapters={chapters}
       />
     </ReactFlowProvider>
   );

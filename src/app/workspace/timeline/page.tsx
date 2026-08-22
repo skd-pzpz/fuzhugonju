@@ -28,6 +28,7 @@ export default async function TimelinePage({
   let novelTitle = "";
   let novelId: string | null = null;
   let timelineEvents: TimelineEvent[] = [];
+  let chapterRows: { id: string; title: string | null }[] = [];
 
   try {
     // 优先使用 URL 参数中的 novelId，否则取第一部小说
@@ -49,7 +50,7 @@ export default async function TimelinePage({
       novelId = novel.id;
       novelTitle = novel.title;
 
-      const [eventRows, charRows, chapterRows] = await Promise.all([
+      const [eventRows, charRows] = await Promise.all([
         db.query.events.findMany({
           where: eq(events.novelId, novel.id),
           orderBy: asc(events.position),
@@ -62,7 +63,10 @@ export default async function TimelinePage({
           where: eq(chapters.novelId, novel.id),
           columns: { id: true, title: true },
         }),
-      ]);
+      ]).then(([e, ch, cp]) => {
+        chapterRows = cp;
+        return [e, ch] as const;
+      });
 
       const charMap = new Map(charRows.map((c) => [c.id, c.name]));
       const chapterMap = new Map(
@@ -149,6 +153,7 @@ export default async function TimelinePage({
             novelId={novelId}
             events={timelineEvents}
             focusEventId={focus}
+            chapters={chapterRows.map((c) => ({ id: c.id, title: c.title ?? "未命名章节" }))}
           />
         </ClientOnly>
       )}

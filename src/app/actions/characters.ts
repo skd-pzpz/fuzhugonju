@@ -1,6 +1,6 @@
 "use server";
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
@@ -77,7 +77,7 @@ export async function deleteCharacters(characterIds: string[]) {
   try {
     // 1. 一次性查询所有角色，确认归属
     const allChars = await db.query.characters.findMany({
-      where: and(...characterIds.map((id) => eq(characters.id, id))),
+      where: or(...characterIds.map((id) => eq(characters.id, id))),
       columns: { id: true, novelId: true },
     });
 

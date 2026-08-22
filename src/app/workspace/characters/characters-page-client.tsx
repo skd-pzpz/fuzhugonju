@@ -2,7 +2,7 @@
 
 import { CheckSquare, Loader2, Square, Trash2, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 import { getCharacterDetail, type CharacterDetail } from "@/app/actions/characters";
 import { deleteCharacter, deleteCharacters } from "@/app/actions/characters";
@@ -189,6 +189,12 @@ export function CharactersPageClient({
   const [detail, setDetail] = useState<CharacterDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
 
+  // 本地乐观状态：用于前端立即响应删除，后端慢慢处理
+  const [localCharacters, setLocalCharacters] = useState(confirmed);
+  useEffect(() => {
+    setLocalCharacters(confirmed);
+  }, [confirmed]);
+
   // 批量选择状态
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -237,39 +243,45 @@ export function CharactersPageClient({
   }, []);
 
   const selectAll = useCallback(() => {
-    if (selectedIds.size === confirmed.length) {
+    if (selectedIds.size === localCharacters.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(confirmed.map((c) => c.id)));
+      setSelectedIds(new Set(localCharacters.map((c) => c.id)));
     }
-  }, [confirmed, selectedIds.size]);
+  }, [localCharacters, selectedIds.size]);
 
   const handleBatchDelete = async () => {
     if (batchDeleting || selectedIds.size === 0) return;
     setBatchDeleting(true);
+    setBatchDeleteDialogOpen(false); // 立即关闭弹窗
+
+    const ids = Array.from(selectedIds);
+    // 乐观删除：从本地列表立即移除，后端在后台慢慢删
+    const deletedNames = localCharacters
+      .filter((c) => selectedIds.has(c.id))
+      .map((c) => c.name);
+    setLocalCharacters((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+    addToast(`正在删除 ${ids.length} 个角色…`);
+
+    // 后台异步删除
     try {
-      const ids = Array.from(selectedIds);
       const result = await deleteCharacters(ids);
       if (result.ok) {
         addToast(`已批量删除 ${ids.length} 个角色`);
-        // 从 AI 面板移除所有被删除的角色名
-        const names = confirmed
-          .filter((c) => selectedIds.has(c.id))
-          .map((c) => c.name);
-        names.forEach((name) =>
+        deletedNames.forEach((name) =>
           useAnalysisStore.getState().removeCharactersByName(name),
         );
-        setSelectedIds(new Set());
-        setSelectionMode(false);
-        router.refresh();
       } else {
         addToast(result.error, "error");
+        router.refresh(); // 删除失败，回滚 UI
       }
     } catch {
       addToast("批量删除失败，请稍后重试", "error");
+      router.refresh(); // 删除失败，回滚 UI
     } finally {
       setBatchDeleting(false);
-      setBatchDeleteDialogOpen(false);
     }
   };
 
@@ -291,7 +303,7 @@ export function CharactersPageClient({
     );
   }
 
-  const allSelected = confirmed.length > 0 && selectedIds.size === confirmed.length;
+  const allSelected = localCharacters.length > 0 && selectedIds.size === localCharacters.length;
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -299,7 +311,7 @@ export function CharactersPageClient({
         <div>
           <h2 className="text-base font-semibold">角色档案</h2>
           <p className="text-xs text-muted-foreground">
-            《{novelTitle}》· 已确认角色 {confirmed.length} 个
+            《{novelTitle}》· 已确认角色 {localCharacters.length} 个
           </p>
         </div>
 
@@ -344,7 +356,7 @@ export function CharactersPageClient({
       </div>
 
       {/* 选择模式下的操作栏 */}
-      {selectionMode && confirmed.length > 0 && (
+      {selectionMode && localCharacters.length > 0 && (
         <div className="mb-3 flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-3 py-2">
           <button
             type="button"
@@ -359,7 +371,7 @@ export function CharactersPageClient({
             {allSelected ? "取消全选" : "全选"}
           </button>
           <span className="text-xs text-muted-foreground">
-            已选 {selectedIds.size} / {confirmed.length}
+            已选 {selectedIds.size} / {localCharacters.length}
           </span>
         </div>
       )}
@@ -391,7 +403,7 @@ export function CharactersPageClient({
         </AlertDialogContent>
       </AlertDialog>
 
-      {confirmed.length === 0 ? (
+      {localCharacters.length === 0 ? (
         <Card className="flex flex-col items-center justify-center gap-3 rounded-2xl border-dashed border-border bg-card/50 px-6 py-16 text-center">
           <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white">
             <UsersRound className="size-5" />
@@ -405,7 +417,7 @@ export function CharactersPageClient({
         </Card>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {confirmed.map((character) => (
+          {localCharacters.map((character) => (
             <CharacterCard
               key={character.id}
               character={character}

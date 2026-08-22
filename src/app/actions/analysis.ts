@@ -318,7 +318,7 @@ async function apiCallWithTimeout(
         temperature: 0.1,
       }),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("TIMEOUT")), 120_000),
+        setTimeout(() => reject(new Error("TIMEOUT")), 150_000),
       ),
     ]);
     const data = robustJsonParse(textResult.text, chapterAnalysisSchema);
