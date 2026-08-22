@@ -1,11 +1,11 @@
 "use client";
 
-import { Loader2, Trash2, UsersRound } from "lucide-react";
+import { CheckSquare, Loader2, Square, Trash2, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 
 import { getCharacterDetail, type CharacterDetail } from "@/app/actions/characters";
-import { deleteCharacter } from "@/app/actions/characters";
+import { deleteCharacter, deleteCharacters } from "@/app/actions/characters";
 import { CharacterDetailModal } from "@/components/character/character-detail-modal";
 import {
   AlertDialog,
@@ -31,9 +31,15 @@ function initials(name: string) {
 function CharacterCard({
   character,
   onClick,
+  selected,
+  onToggleSelect,
+  selectionMode,
 }: {
   character: CharacterCardData;
   onClick: () => void;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
+  selectionMode: boolean;
 }) {
   const router = useRouter();
   const addToast = useToastStore((s) => s.addToast);
@@ -60,54 +66,71 @@ function CharacterCard({
 
   return (
     <Card className="group/card relative rounded-2xl border-border/60 bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
-      {/* 删除按钮 */}
-      <AlertDialog>
-        <AlertDialogTrigger
-          render={
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`删除角色 ${character.name}`}
-              className="absolute top-2 right-2 h-7 w-7 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100"
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          }
-        />
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>删除角色</AlertDialogTitle>
-            <AlertDialogDescription>
-              确定删除角色【{character.name}】？此操作不可恢复，相关出场记录也将被删除。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogTrigger
-              render={<Button variant="outline" size="sm" disabled={deleting} />}
-            >
-              取消
-            </AlertDialogTrigger>
-            <AlertDialogTrigger
-              render={
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={deleting}
-                  onClick={handleDelete}
-                />
-              }
-            >
-              {deleting ? "删除中…" : "删除"}
-            </AlertDialogTrigger>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* 删除按钮（仅在非选择模式下显示） */}
+      {!selectionMode && (
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`删除角色 ${character.name}`}
+                className="absolute top-2 right-2 h-7 w-7 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100"
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>删除角色</AlertDialogTitle>
+              <AlertDialogDescription>
+                确定删除角色【{character.name}】？此操作不可恢复，相关出场记录也将被删除。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogTrigger
+                render={<Button variant="outline" size="sm" disabled={deleting} />}
+              >
+                取消
+              </AlertDialogTrigger>
+              <AlertDialogTrigger
+                render={
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={deleting}
+                    onClick={handleDelete}
+                  />
+                }
+              >
+                {deleting ? "删除中…" : "删除"}
+              </AlertDialogTrigger>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
-      {/* 卡片主体（可点击查看详情） */}
+      {/* 选择模式下的复选框 */}
+      {selectionMode && (
+        <button
+          type="button"
+          onClick={() => onToggleSelect(character.id)}
+          className="absolute top-2 right-2 flex h-7 w-7 items-center justify-center"
+        >
+          {selected ? (
+            <CheckSquare className="size-5 text-primary" />
+          ) : (
+            <Square className="size-5 text-muted-foreground" />
+          )}
+        </button>
+      )}
+
+      {/* 卡片主体（可点击查看详情 - 选择模式下点击切换选中） */}
       <button
         type="button"
-        onClick={onClick}
+        onClick={selectionMode ? () => onToggleSelect(character.id) : onClick}
         className="w-full text-left"
       >
         <div className="flex items-center gap-3">
@@ -159,10 +182,18 @@ export function CharactersPageClient({
   novelId: string | null;
   confirmed: CharacterCardData[];
 }) {
+  const router = useRouter();
+  const addToast = useToastStore((s) => s.addToast);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState<CharacterDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+
+  // 批量选择状态
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
 
   const openDetail = async (characterId: string) => {
     setDetailLoading(true);
@@ -186,11 +217,59 @@ export function CharactersPageClient({
   };
 
   const handleRefresh = () => {
-    // Refetch detail
     if (detail) {
       openDetail(detail.id);
     } else {
       setDetailError(null);
+    }
+  };
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    if (selectedIds.size === confirmed.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(confirmed.map((c) => c.id)));
+    }
+  }, [confirmed, selectedIds.size]);
+
+  const handleBatchDelete = async () => {
+    if (batchDeleting || selectedIds.size === 0) return;
+    setBatchDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const result = await deleteCharacters(ids);
+      if (result.ok) {
+        addToast(`已批量删除 ${ids.length} 个角色`);
+        // 从 AI 面板移除所有被删除的角色名
+        const names = confirmed
+          .filter((c) => selectedIds.has(c.id))
+          .map((c) => c.name);
+        names.forEach((name) =>
+          useAnalysisStore.getState().removeCharactersByName(name),
+        );
+        setSelectedIds(new Set());
+        setSelectionMode(false);
+        router.refresh();
+      } else {
+        addToast(result.error, "error");
+      }
+    } catch {
+      addToast("批量删除失败，请稍后重试", "error");
+    } finally {
+      setBatchDeleting(false);
+      setBatchDeleteDialogOpen(false);
     }
   };
 
@@ -212,6 +291,8 @@ export function CharactersPageClient({
     );
   }
 
+  const allSelected = confirmed.length > 0 && selectedIds.size === confirmed.length;
+
   return (
     <div className="mx-auto max-w-4xl">
       <div className="mb-4 flex items-center justify-between">
@@ -221,7 +302,94 @@ export function CharactersPageClient({
             《{novelTitle}》· 已确认角色 {confirmed.length} 个
           </p>
         </div>
+
+        {/* 批量管理按钮 */}
+        <div className="flex items-center gap-2">
+          {selectionMode ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSelectionMode(false);
+                  setSelectedIds(new Set());
+                }}
+                className="gap-1.5 text-xs"
+              >
+                取消
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={selectedIds.size === 0}
+                onClick={() => setBatchDeleteDialogOpen(true)}
+                className="gap-1.5 text-xs"
+              >
+                <Trash2 className="size-3.5" />
+                删除所选 ({selectedIds.size})
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectionMode(true)}
+              className="gap-1.5 text-xs"
+            >
+              <CheckSquare className="size-3.5" />
+              批量管理
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* 选择模式下的操作栏 */}
+      {selectionMode && confirmed.length > 0 && (
+        <div className="mb-3 flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-3 py-2">
+          <button
+            type="button"
+            onClick={selectAll}
+            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {allSelected ? (
+              <CheckSquare className="size-4 text-primary" />
+            ) : (
+              <Square className="size-4" />
+            )}
+            {allSelected ? "取消全选" : "全选"}
+          </button>
+          <span className="text-xs text-muted-foreground">
+            已选 {selectedIds.size} / {confirmed.length}
+          </span>
+        </div>
+      )}
+
+      {/* 批量删除确认弹窗 */}
+      <AlertDialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>批量删除角色</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定删除选中的 {selectedIds.size} 个角色？此操作不可恢复，相关出场记录也将被删除。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogTrigger
+              render={<Button variant="outline" size="sm" disabled={batchDeleting} />}
+            >
+              取消
+            </AlertDialogTrigger>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={batchDeleting}
+              onClick={handleBatchDelete}
+            >
+              {batchDeleting ? "删除中…" : `确认删除 (${selectedIds.size})`}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {confirmed.length === 0 ? (
         <Card className="flex flex-col items-center justify-center gap-3 rounded-2xl border-dashed border-border bg-card/50 px-6 py-16 text-center">
@@ -242,12 +410,14 @@ export function CharactersPageClient({
               key={character.id}
               character={character}
               onClick={() => openDetail(character.id)}
+              selected={selectedIds.has(character.id)}
+              onToggleSelect={toggleSelect}
+              selectionMode={selectionMode}
             />
           ))}
         </div>
       )}
 
-      {/* 角色详情弹窗（使用新组件） */}
       <CharacterDetailModal
         open={detailOpen}
         onOpenChange={(open) => {

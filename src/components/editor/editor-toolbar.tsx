@@ -5,7 +5,6 @@ import {
   Bold,
   GitBranch,
   Loader2,
-  Pilcrow,
   Redo2,
   Scissors,
   Undo2,
@@ -210,11 +209,11 @@ export function EditorToolbar({
         <Select value={lineHeight} onValueChange={(v) => { if (v) onLineHeightChange(v); }}>
           <SelectTrigger
             aria-label="行间距"
-            className="h-8 w-[80px] rounded-lg text-[13px]"
+            className="h-8 w-[90px] rounded-lg text-[13px]"
           >
             <SelectValue>
-              <span className="flex items-center gap-1.5">
-                <Pilcrow className="size-3.5" />
+              <span className="flex items-center gap-1">
+                <span className="text-[11px] font-medium whitespace-nowrap">行间距</span>
                 {lineHeight}
               </span>
             </SelectValue>

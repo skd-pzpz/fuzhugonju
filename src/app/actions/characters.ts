@@ -64,6 +64,54 @@ export async function deleteCharacter(characterId: string) {
   return { ok: true as const };
 }
 
+/**
+ * 批量删除角色：
+ * 一次性查询所有角色归属，然后在单个事务中批量删除出场记录和角色。
+ * 相比逐个调用 deleteCharacter，减少 N 次查询和 N 个事务的开销。
+ */
+export async function deleteCharacters(characterIds: string[]) {
+  if (characterIds.length === 0) return { ok: false as const, error: "未选择角色" };
+
+  const userId = await requireUserId();
+
+  try {
+    // 1. 一次性查询所有角色，确认归属
+    const allChars = await db.query.characters.findMany({
+      where: and(...characterIds.map((id) => eq(characters.id, id))),
+      columns: { id: true, novelId: true },
+    });
+
+    // 2. 检查每个角色所属小说是否为本用户
+    for (const c of allChars) {
+      await requireNovelOwnership(c.novelId, userId);
+    }
+
+    const ids = allChars.map((c) => c.id);
+    if (ids.length === 0) return { ok: false as const, error: "角色不存在" };
+
+    // 3. 单事务批量删除
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(characterAppearances)
+        .where(
+          and(...ids.map((id) => eq(characterAppearances.characterId, id))),
+        );
+      await tx
+        .delete(characters)
+        .where(
+          and(...ids.map((id) => eq(characters.id, id))),
+        );
+    });
+  } catch (error) {
+    console.error("批量删除角色失败：", error);
+    return { ok: false as const, error: "批量删除失败，请稍后重试" };
+  }
+
+  revalidatePath("/workspace/characters");
+  revalidatePath("/novels/[id]/editor");
+  return { ok: true as const };
+}
+
 export type CharacterDetail = {
   id: string;
   name: string;
