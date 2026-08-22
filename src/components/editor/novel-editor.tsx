@@ -48,7 +48,6 @@ const BG_OPACITY_KEY = "novelcraft-editor-bg-opacity";
 const DEFAULT_BG_OPACITY = "15";
 const BG_BLUR_KEY = "novelcraft-editor-bg-blur";
 const DEFAULT_BG_BLUR = "16";
-const BG_GRADIENT_KEY = "novelcraft-editor-bg-gradient";
 const BG_NOISE_KEY = "novelcraft-editor-bg-noise";
 
 /** 防抖保存延迟（停止打字后立即保存） */
@@ -235,7 +234,6 @@ export function NovelEditor({
   const [bgImage, setBgImage] = useState("");
   const [bgOpacity, setBgOpacity] = useState(DEFAULT_BG_OPACITY);
   const [bgBlur, setBgBlur] = useState(DEFAULT_BG_BLUR);
-  const [bgGradient, setBgGradient] = useState(true);
   const [bgNoise, setBgNoise] = useState(true);
 
   useEffect(() => {
@@ -246,8 +244,6 @@ export function NovelEditor({
     if (savedOpacity) setBgOpacity(savedOpacity);
     const savedBlur = window.localStorage.getItem(BG_BLUR_KEY);
     if (savedBlur) setBgBlur(savedBlur);
-    const savedGradient = window.localStorage.getItem(BG_GRADIENT_KEY);
-    if (savedGradient !== null) setBgGradient(savedGradient === "true");
     const savedNoise = window.localStorage.getItem(BG_NOISE_KEY);
     if (savedNoise !== null) setBgNoise(savedNoise === "true");
   }, []);
@@ -269,12 +265,10 @@ export function NovelEditor({
     setBgImage("");
     setBgOpacity(DEFAULT_BG_OPACITY);
     setBgBlur(DEFAULT_BG_BLUR);
-    setBgGradient(true);
     setBgNoise(true);
     localStorage.removeItem(BG_IMAGE_KEY);
     localStorage.removeItem(BG_OPACITY_KEY);
     localStorage.removeItem(BG_BLUR_KEY);
-    localStorage.removeItem(BG_GRADIENT_KEY);
     localStorage.removeItem(BG_NOISE_KEY);
   }, []);
 
@@ -550,19 +544,6 @@ export function NovelEditor({
             : undefined
         }
       >
-        {/* 柔焦渐变遮罩 - 压暗+去饱和背景图 */}
-        {bgImage && bgGradient && (
-          <div
-            className="pointer-events-none fixed inset-0"
-            style={{
-              background: isDark
-                ? "linear-gradient(135deg, rgba(5,10,15,0.8) 0%, rgba(10,20,25,0.7) 100%)"
-                : "linear-gradient(135deg, rgba(15,46,40,0.55) 0%, rgba(30,70,60,0.45) 50%, rgba(10,35,30,0.6) 100%)",
-              zIndex: 0,
-            }}
-          />
-        )}
-
         {/* 噪点纹理 - 增加纸张/画布质感 */}
         {bgImage && bgNoise && (
           <div
@@ -768,17 +749,6 @@ export function NovelEditor({
                       setAndPersist(BG_BLUR_KEY, setBgBlur, e.target.value)
                     }
                     className="h-1.5 w-full cursor-pointer accent-primary"
-                  />
-                </div>
-
-                {/* 柔焦遮罩 */}
-                <div className="flex items-center justify-between">
-                  <Label>柔焦渐变遮罩</Label>
-                  <Switch
-                    checked={bgGradient}
-                    onCheckedChange={(v) =>
-                      setAndPersist(BG_GRADIENT_KEY, setBgGradient, v)
-                    }
                   />
                 </div>
 
